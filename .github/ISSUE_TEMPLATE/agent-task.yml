@@ -1,0 +1,51 @@
+name: Agent task
+description: A scoped unit of work for a coding agent
+labels: ["agent-task"]
+body:
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone
+      options: [M0, M1, M2, M3, M4, M5, M6, M7]
+    validations:
+      required: true
+  - type: input
+    id: module
+    attributes:
+      label: Module
+      description: The one module this task works in (e.g. engine/vm, orchestrator, gateway)
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should exist when this is done?
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: Spec references
+      description: Sections of spec/game-design.md, spec/system-design.md, or contracts this implements
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkable conditions, ideally as tests that must pass
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Things this task must not touch
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on
+      description: Issues or PRs that must merge first

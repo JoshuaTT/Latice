@@ -1,0 +1,1 @@
+Nudge: continue your loop from your role prompt. Check your open issues and PRs first (CI status, review comments, rebases needed), then take the next piece of work. When you have nothing left to do, reply with one line of status and stop.

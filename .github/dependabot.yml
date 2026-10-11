@@ -1,0 +1,10 @@
+# Add cargo, uv, and npm entries as those workspaces are created (M0).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    labels: [dependencies]

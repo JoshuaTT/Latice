@@ -1,0 +1,66 @@
+# Harness Runtime environment spec: Codex CLI on DigitalOcean Inference.
+#
+# Placeholders AGENT_NAME, AGENT_ROLE, AGENT_MODEL, and AGENT_SIZE are filled
+# in by swarm.sh from swarm.conf. The two secrets are read from your shell by
+# doctl at create time and stored as write-only secrets.
+#
+# To launch one agent by hand: ./swarm.sh render <name> > spec.yaml, then
+# doctl harness-runtime launch --spec spec.yaml
+name: lattice-${AGENT_NAME}
+description: LATTICE ${AGENT_ROLE} ${AGENT_NAME} (codex, ${AGENT_MODEL})
+labels:
+  project: lattice
+  role: ${AGENT_ROLE}
+agent: codex
+size: ${AGENT_SIZE}
+idle_timeout: 30m
+repos:
+  - JoshuaTT/Latice
+env:
+  HARNESS_INFERENCE_MODEL: ${AGENT_MODEL}
+  LATTICE_AGENT_NAME: ${AGENT_NAME}
+  LATTICE_AGENT_ROLE: ${AGENT_ROLE}
+  LATTICE_AGENT_MODEL: ${AGENT_MODEL}
+  LATTICE_AGENT_ADAPTER: codex
+secrets:
+  HARNESS_INFERENCE_API_KEY: ${HARNESS_INFERENCE_API_KEY}
+  GITHUB_TOKEN: ${GITHUB_TOKEN}
+egress:
+  - github.com
+  - api.github.com
+  - codeload.github.com
+  - objects.githubusercontent.com
+  - release-assets.githubusercontent.com
+  - static.rust-lang.org
+  - sh.rustup.rs
+  - crates.io
+  - index.crates.io
+  - static.crates.io
+  - pypi.org
+  - files.pythonhosted.org
+  - astral.sh
+  - registry.npmjs.org
+# Swarm sessions run without anyone watching, so "ask" would stall them.
+# Default allow, with explicit denies for things an agent must never do.
+# The repo's rulesets and CODEOWNERS are the real backstop.
+permissions:
+  default: allow
+  rules:
+    - tool: bash
+      match: { command: "git push --force*" }
+      action: deny
+    - tool: bash
+      match: { command: "git push -f*" }
+      action: deny
+    - tool: bash
+      match: { command: "git push origin main*" }
+      action: deny
+    - tool: bash
+      match: { command: "gh pr merge --admin*" }
+      action: deny
+    - tool: bash
+      match: { command: "gh repo delete*" }
+      action: deny
+    - tool: bash
+      match: { command: "rm -rf /*" }
+      action: deny
