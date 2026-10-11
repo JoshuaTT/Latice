@@ -362,8 +362,10 @@ check_local() {
     model="$(agent_field "$name" 4)"
     build_local_cmd "$name"
     # One tool-free turn: proves auth, model access, the sandbox, and flags.
-    if out="$(cd "${TMPDIR:-/tmp}" && "${local_cmd[@]}" -p --permission-prompts none \
-                --max-turns 1 --tools "" "Reply with the single word OK." 2>&1)"; then
+    # The prompt goes on stdin, like real runs: --tools takes multiple values
+    # and would swallow a prompt passed as an argument after it.
+    if out="$(cd "${TMPDIR:-/tmp}" && printf 'Reply with the single word OK.\n' \
+                | "${local_cmd[@]}" -p --permission-prompts none --max-turns 1 --tools "" 2>&1)"; then
       ok "$name: $model answered ($(printf '%s' "$out" | tr -d '\n' | head -c 40))"
     else
       warn "$name: Claude Code run failed with model '$model':"
