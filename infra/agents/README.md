@@ -45,9 +45,12 @@ The default roster (`swarm.conf`) is a coordinator plus four workers on four dif
 ## Running it
 
 ```bash
-./swarm.sh up          # start the coordinator, then (after 90s) every worker
-./swarm.sh watch 20    # nudge everyone every 20 minutes; leave this running
+./swarm.sh check       # must end with "all checks passed"
+./swarm.sh up          # starts the coordinator, waits until it has assigned issues, then starts the workers
+./swarm.sh watch 20    # nudges idle agents every 20 minutes; leave this running
 ```
+
+How prompts run: `doctl harness-runtime prompt` blocks until the agent finishes its run, which can take hours. So `swarm.sh` sends every prompt in the background (it survives closing the terminal), tracks each agent's current run, and never nudges an agent that's still mid-run. Each agent's replies go to `infra/agents/.swarm/<name>.log` (gitignored). `./swarm.sh status` shows which agents are mid-run.
 
 Then watch the `Swarm status` issue and the PR list. Your job:
 - approve PRs labeled `needs-human` (spec, `.github`, sandbox, golden hashes)
@@ -81,6 +84,9 @@ Other commands:
 ## Troubleshooting
 
 - **A doctl command fails with an unknown flag.** Managed Agents is in public preview and its CLI is changing. Run `./swarm.sh check`, compare with `doctl harness-runtime <command> --help`, and adjust `swarm.sh`.
+- **doctl asks for an Anthropic API key.** Don't paste one. The `claude-code` adapter requires `ANTHROPIC_API_KEY`, and our Claude Code agents send it to DigitalOcean Inference, so `swarm.sh` sets it to your DigitalOcean model access key automatically. If you see the prompt, you're running `doctl` directly instead of through `swarm.sh`, or `.env` isn't loaded.
+- **What did an agent say?** `cat infra/agents/.swarm/<name>.log` for its replies to each prompt; `./swarm.sh logs <name>` for the full event history on DigitalOcean.
+- **An agent asked for approval.** Prompts run with `--on-hitl reject`, so approval requests are refused rather than left hanging. If an agent keeps hitting one, add an explicit rule for it in `specs/<adapter>.yaml`.
 - **An agent times out installing something.** Its host isn't in the spec's `egress` list. Add it to `specs/<adapter>.yaml` and recreate the session.
 - **Agents sit idle.** Make sure `watch` is running and the coordinator has created issues with `swarm:<name>` labels.
 - **Two agents worked on the same issue.** Check that the issue had exactly one `swarm:*` label; the coordinator is responsible for that.
