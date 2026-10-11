@@ -293,11 +293,19 @@ cmd_status() {
   need_doctl
   local names name state
   names="$(selected_names)"
-  doctl harness-runtime list | awk -v p="$PREFIX" 'NR == 1 || index($0, p)'
+  info "all sessions on your DigitalOcean team"
+  doctl harness-runtime list --format SessionID,Name,Status,PauseReason,CreatedAt
   echo
+  info "swarm agents"
   for name in $names; do
-    if is_busy "$name"; then state="mid-run (pid $(cat "$(pid_file "$name")"))"; else state="idle"; fi
-    printf '  %-12s %s\n' "$name" "$state"
+    if is_busy "$name"; then
+      state="mid-run (pid $(cat "$(pid_file "$name")"))"
+    elif session_exists "$name"; then
+      state="idle"
+    else
+      state="no session"
+    fi
+    printf '  %-12s %-21s %s\n' "$name" "$(session "$name")" "$state"
   done
 }
 
@@ -338,17 +346,23 @@ cmd_each() {
 }
 
 cmd_down() {
-  local names; names="$(selected_names "$@" | tr '\n' ' ')"
-  read -r -p "Remove sessions: $names? Workspaces are deleted. [y/N] " reply
+  need_doctl
+  local all name existing=()
+  all="$(selected_names "$@")"
+  for name in $all; do
+    if session_exists "$name"; then existing+=("$name"); else echo "[$name] no session; nothing to remove"; fi
+  done
+  [[ ${#existing[@]} -gt 0 ]] || return 0
+  read -r -p "Remove sessions: ${existing[*]}? Workspaces are deleted. [y/N] " reply
   [[ "$reply" == [yY] ]] || { echo "aborted"; return; }
-  local name pid
-  for name in $names; do
+  local pid
+  for name in "${existing[@]}"; do
     if is_busy "$name"; then
       pid="$(cat "$(pid_file "$name")")"; kill "$pid" 2>/dev/null || true
     fi
     rm -f "$(pid_file "$name")"
   done
-  cmd_each remove "$@"
+  cmd_each remove "${existing[@]}"
 }
 
 main() {
