@@ -1,0 +1,34 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# Rust
+target/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+*.egg-info/
+
+# Node
+node_modules/
+.pnpm-store/
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+
+# Local agent worktrees and scratch
+.worktrees/
+.claude/settings.local.json
