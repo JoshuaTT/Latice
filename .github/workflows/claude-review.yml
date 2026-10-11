@@ -27,7 +27,7 @@ jobs:
           if [ -n "$KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"
           else echo "::notice::ANTHROPIC_API_KEY not set; skipping AI review"; echo "present=false" >> "$GITHUB_OUTPUT"; fi
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.key.outputs.present == 'true'
         with:
           fetch-depth: 1

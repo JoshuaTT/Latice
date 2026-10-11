@@ -18,7 +18,7 @@ jobs:
     name: Native vs. WASM determinism
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         if: hashFiles('engine-wasm/Cargo.toml') != '' && hashFiles('tests/golden/**') != ''
         with:
@@ -34,7 +34,7 @@ jobs:
     name: Fuzz VM, checker, resolver
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
         if: hashFiles('engine/fuzz/Cargo.toml') != ''
       - name: Run fuzz targets (10 min each)
@@ -53,7 +53,7 @@ jobs:
     name: Sandbox escape suite
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         if: hashFiles('engine/tests/sandbox/**') != ''
       - name: Run escape attempts
@@ -67,7 +67,7 @@ jobs:
     name: Full-size performance (1024², worst case)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         if: hashFiles('engine/benches/**') != ''
       - name: Worst-case clash budget
