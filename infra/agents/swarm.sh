@@ -68,6 +68,16 @@ claude_key_check() {
     -H "anthropic-version: 2023-06-01" -H "Accept: application/json"
 }
 
+# model_probe <model>: one-token chat completion. Prints the body, a newline,
+# then the HTTP status code.
+model_probe() {
+  curl -sS -m 60 -w $'\n%{http_code}' "$DO_INFERENCE_URL/v1/chat/completions" \
+    -H "Authorization: Bearer $HARNESS_INFERENCE_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\":\"$1\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1}" \
+    2>/dev/null || printf '\n000'
+}
+
 uses_claude_code() { roster | awk '$3 == "claude-code"' | grep -q .; }
 
 need_doctl() { command -v doctl >/dev/null || die "doctl not found (brew install doctl)"; }
@@ -223,11 +233,23 @@ cmd_check() {
     ok "token has no Administration access"
   fi
 
-  info "model IDs in swarm.conf"
-  local models m
+  info "models in swarm.conf (a 1-token test call each; costs a fraction of a cent)"
+  local models m code body
   if models="$(cmd_models 2>/dev/null)" && [[ -n "$models" ]]; then
     for m in $(roster | awk '{print $4}' | sort -u); do
-      grep -qx -- "$m" <<<"$models" && ok "$m" || { warn "$m is not available (run ./swarm.sh models)"; fail=1; }
+      if ! grep -qx -- "$m" <<<"$models"; then
+        warn "$m is not a known model ID (run ./swarm.sh models)"; fail=1; continue
+      fi
+      # The model list shows every model, including ones your account tier
+      # can't use, so make a real (tiny) call to find out.
+      body="$(model_probe "$m")"; code="${body##*$'\n'}"; body="${body%$'\n'*}"
+      if [[ "$code" == 2* ]]; then
+        ok "$m"
+      elif [[ "$code" == 403 ]]; then
+        warn "$m is not available for your DigitalOcean account tier (HTTP 403)"; fail=1
+      else
+        warn "$m test call failed (HTTP ${code:-none}): $(printf '%s' "$body" | head -c 200)"; fail=1
+      fi
     done
   else
     warn "could not list models (check HARNESS_INFERENCE_API_KEY)"; fail=1
