@@ -1,0 +1,91 @@
+# M0 placeholder CI. The job names below (lint, test, contracts,
+# determinism, perf-budget) are required status checks in
+# .github/rulesets/main-protection.json — keep them stable.
+# Each job runs real checks once the relevant part of the repo exists,
+# and passes with a notice until then.
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust
+        run: |
+          if [ -f Cargo.toml ]; then
+            cargo fmt --all --check
+            cargo clippy --all-targets --all-features -- -D warnings
+          else
+            echo "::notice::No Cargo.toml yet; skipping Rust lint"
+          fi
+      - name: Python
+        run: |
+          if [ -f pyproject.toml ]; then
+            pipx run ruff check .
+            pipx run ruff format --check .
+          else
+            echo "::notice::No pyproject.toml yet; skipping Python lint"
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust tests
+        run: |
+          if [ -f Cargo.toml ]; then cargo test --workspace --all-features
+          else echo "::notice::No Rust workspace yet"; fi
+      - name: Python tests
+        run: |
+          if [ -f pyproject.toml ]; then pipx run --spec pytest pytest
+          else echo "::notice::No Python project yet"; fi
+
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate contract schemas
+        run: |
+          if [ -d spec/contracts ]; then
+            pip install --quiet check-jsonschema
+            find spec/contracts -name '*.json' -print0 | xargs -0 -r check-jsonschema --check-metaschema
+          else
+            echo "::notice::No spec/contracts yet"
+          fi
+
+  determinism:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Golden replays (native; WASM parity added at M1)
+        run: |
+          if [ -d tests/golden ] && [ -f Cargo.toml ]; then
+            cargo run --release -p lattice-cli -- replay --verify tests/golden
+          else
+            echo "::notice::No golden replays yet"
+          fi
+
+  perf-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Performance budgets (system design §11.4)
+        run: |
+          if [ -d engine/benches ]; then
+            cargo bench -p lattice-engine -- --budget
+          else
+            echo "::notice::No benchmarks yet"
+          fi

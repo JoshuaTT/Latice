@@ -1,0 +1,25 @@
+# Paths that need a human (code owner) approval before merging to main.
+# Everything else can merge with green CI alone, so coding agents can
+# work without waiting on reviews. See spec/system-design.md §8 and §11.
+
+# Specs, contracts, and rulesets are the source of truth
+/spec/                      @JoshuaTT
+
+# Repo governance: CI, rulesets, and this file
+/.github/                   @JoshuaTT
+
+# Infrastructure and deployment
+/infra/                     @JoshuaTT
+
+# Sandbox boundary (security-sensitive)
+/engine/src/vm/             @JoshuaTT
+/engine/src/checker/        @JoshuaTT
+
+# Player-facing prompt and harness policy (must stay strategy-neutral)
+/pilot/prompts/             @JoshuaTT
+
+# Tuning guardrails
+/tuning/guardrails/         @JoshuaTT
+
+# Golden determinism hashes (changing these changes what "correct" means)
+/tests/golden/              @JoshuaTT
