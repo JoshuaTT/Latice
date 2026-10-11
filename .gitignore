@@ -30,5 +30,6 @@ node_modules/
 !.env.example
 
 # Local agent worktrees and scratch
+infra/agents/.swarm/
 .worktrees/
 .claude/settings.local.json

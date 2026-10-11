@@ -4,6 +4,12 @@
 # in by swarm.sh from swarm.conf. The two secrets are read from your shell by
 # doctl at create time and stored as write-only secrets.
 #
+# Claude Code talks to DigitalOcean Inference directly, the way DigitalOcean
+# documents for coding agents: ANTHROPIC_BASE_URL points at inference.do-ai.run
+# and ANTHROPIC_API_KEY holds your DigitalOcean model access key (swarm.sh sets
+# it from HARNESS_INFERENCE_API_KEY). doctl requires ANTHROPIC_API_KEY for the
+# claude-code adapter, so the HARNESS_INFERENCE_* fields aren't used here.
+#
 # To launch one agent by hand: ./swarm.sh render <name> > spec.yaml, then
 # doctl harness-runtime launch --spec spec.yaml
 name: lattice-${AGENT_NAME}
@@ -17,15 +23,19 @@ idle_timeout: 30m
 repos:
   - JoshuaTT/Latice
 env:
-  HARNESS_INFERENCE_MODEL: ${AGENT_MODEL}
+  ANTHROPIC_BASE_URL: https://inference.do-ai.run
+  ANTHROPIC_MODEL: ${AGENT_MODEL}
+  CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: "1"
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
   LATTICE_AGENT_NAME: ${AGENT_NAME}
   LATTICE_AGENT_ROLE: ${AGENT_ROLE}
   LATTICE_AGENT_MODEL: ${AGENT_MODEL}
   LATTICE_AGENT_ADAPTER: claude-code
 secrets:
-  HARNESS_INFERENCE_API_KEY: ${HARNESS_INFERENCE_API_KEY}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
   GITHUB_TOKEN: ${GITHUB_TOKEN}
 egress:
+  - inference.do-ai.run
   - github.com
   - api.github.com
   - codeload.github.com
