@@ -32,6 +32,7 @@ REPO="JoshuaTT/Latice"
 PREFIX="lattice-"
 STATE_DIR="$HERE/.swarm"          # gitignored: rendered specs, PID files, run logs
 COORD_WAIT_MIN="${COORD_WAIT_MIN:-30}"
+DO_INFERENCE_URL="https://inference.do-ai.run"
 
 die()  { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
@@ -49,9 +50,25 @@ need_creds() {
   # The claude-code adapter requires ANTHROPIC_API_KEY. Our Claude Code agents
   # send it to DigitalOcean Inference (ANTHROPIC_BASE_URL in the spec), so it
   # must be the DigitalOcean model access key, never a real Anthropic key.
-  # This export only affects doctl processes started by this script.
+  #
+  # Before creating a claude-code session, doctl validates the key with
+  # GET $ANTHROPIC_BASE_URL/v1/models, reading ANTHROPIC_BASE_URL from *this*
+  # process's environment (default: api.anthropic.com). Point it at
+  # DigitalOcean so the check hits the same endpoint the agent will use.
+  #
+  # These exports only affect doctl processes started by this script.
   export ANTHROPIC_API_KEY="$HARNESS_INFERENCE_API_KEY"
+  export ANTHROPIC_BASE_URL="$DO_INFERENCE_URL"
 }
+
+# Same request doctl makes to validate ANTHROPIC_API_KEY for claude-code.
+claude_key_check() {
+  curl -sS -m 20 -o /dev/null -w '%{http_code}' "$DO_INFERENCE_URL/v1/models" \
+    -H "x-api-key: $HARNESS_INFERENCE_API_KEY" \
+    -H "anthropic-version: 2023-06-01" -H "Accept: application/json"
+}
+
+uses_claude_code() { roster | awk '$3 == "claude-code"' | grep -q .; }
 
 need_doctl() { command -v doctl >/dev/null || die "doctl not found (brew install doctl)"; }
 
@@ -214,6 +231,20 @@ cmd_check() {
     done
   else
     warn "could not list models (check HARNESS_INFERENCE_API_KEY)"; fail=1
+  fi
+
+  if uses_claude_code; then
+    info "claude-code key check (the request doctl makes before creating a Claude Code session)"
+    local code
+    code="$(claude_key_check || true)"
+    if [[ "$code" == 2* ]]; then
+      ok "DigitalOcean accepts the model access key via x-api-key (HTTP $code)"
+    else
+      warn "DigitalOcean returned HTTP ${code:-none} for GET /v1/models with x-api-key."
+      warn "doctl will refuse to create claude-code sessions. Switch those agents to"
+      warn "the opencode adapter in swarm.conf (Claude models work there too)."
+      fail=1
+    fi
   fi
 
   info "dry run: render every spec and let doctl resolve it (nothing is created)"
