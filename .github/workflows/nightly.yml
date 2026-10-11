@@ -1,0 +1,101 @@
+# Heavier checks that are too slow for every PR (system design §11.1, §11.4, §12).
+# Opens or updates a tracking issue when anything fails.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 8 * * *" # 08:17 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  wasm-parity:
+    name: Native vs. WASM determinism
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        if: hashFiles('engine-wasm/Cargo.toml') != '' && hashFiles('tests/golden/**') != ''
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Compare golden hashes across targets
+        if: hashFiles('engine-wasm/Cargo.toml') != '' && hashFiles('tests/golden/**') != ''
+        run: cargo run --release -p lattice-cli -- replay --verify tests/golden --target-parity wasm
+      - name: Not built yet
+        if: hashFiles('engine-wasm/Cargo.toml') == '' || hashFiles('tests/golden/**') == ''
+        run: echo "::notice::engine-wasm or golden replays not present yet"
+
+  fuzz:
+    name: Fuzz VM, checker, resolver
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+        if: hashFiles('engine/fuzz/Cargo.toml') != ''
+      - name: Run fuzz targets (10 min each)
+        if: hashFiles('engine/fuzz/Cargo.toml') != ''
+        run: |
+          cargo install cargo-fuzz --locked
+          cd engine
+          for t in $(cargo fuzz list); do
+            cargo fuzz run "$t" -- -max_total_time=600
+          done
+      - name: Not built yet
+        if: hashFiles('engine/fuzz/Cargo.toml') == ''
+        run: echo "::notice::No fuzz targets yet"
+
+  sandbox-escape:
+    name: Sandbox escape suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        if: hashFiles('engine/tests/sandbox/**') != ''
+      - name: Run escape attempts
+        if: hashFiles('engine/tests/sandbox/**') != ''
+        run: cargo test -p lattice-engine --test sandbox -- --include-ignored
+      - name: Not built yet
+        if: hashFiles('engine/tests/sandbox/**') == ''
+        run: echo "::notice::No sandbox escape suite yet"
+
+  perf-full:
+    name: Full-size performance (1024², worst case)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        if: hashFiles('engine/benches/**') != ''
+      - name: Worst-case clash budget
+        if: hashFiles('engine/benches/**') != ''
+        run: cargo bench -p lattice-engine -- --budget --full
+      - name: Not built yet
+        if: hashFiles('engine/benches/**') == ''
+        run: echo "::notice::No benchmarks yet"
+
+  report:
+    needs: [wasm-parity, fuzz, sandbox-escape, perf-full]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create nightly-failure --repo "$REPO" --color B60205 --description "Nightly checks failed" --force
+          existing=$(gh issue list --repo "$REPO" --label nightly-failure --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "Nightly failed again: $RUN_URL"
+          else
+            gh issue create --repo "$REPO" --label nightly-failure --label agent-task \
+              --title "Nightly checks failing" \
+              --body "One or more nightly jobs failed: $RUN_URL. Investigate the failing job, fix on a branch, and link this issue."
+          fi

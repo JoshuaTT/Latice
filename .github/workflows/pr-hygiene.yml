@@ -1,0 +1,95 @@
+# Advisory PR checks (not required by the ruleset, but agents must keep them green).
+name: PR hygiene
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hygiene-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conventional Commit title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          re='^(feat|fix|perf|refactor|test|docs|build|ci|chore)(\([a-z0-9-]+\))?!?: .{3,}$'
+          if [[ "$TITLE" =~ $re ]]; then
+            echo "Title OK: $TITLE"
+          else
+            echo "::error::PR title must be a Conventional Commit, e.g. 'feat(vm): add fuel metering'. Got: $TITLE"
+            exit 1
+          fi
+
+  pr-body:
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR template completed
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          status=0
+          for heading in "## Summary" "## Spec" "## Test evidence"; do
+            if ! grep -qF "$heading" <<<"$BODY"; then
+              echo "::error::PR description is missing the '$heading' section from the template"
+              status=1
+            fi
+          done
+          if ! grep -qiE '(closes|fixes|resolves|refs) #[0-9]+|no issue:' <<<"$BODY"; then
+            echo "::error::Link an issue ('Closes #N' or 'Refs #N'), or write 'No issue: <reason>'"
+            status=1
+          fi
+          exit $status
+
+  needs-human:
+    # Labels PRs that touch code-owned paths, so they're easy to find for review.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Label by owned paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create needs-human  --repo "$REPO" --color D93F0B --description "Touches code-owned paths; needs human approval" --force
+          gh label create spec-change  --repo "$REPO" --color 5319E7 --description "Changes the spec" --force
+
+          files=$(gh pr diff "$PR" --repo "$REPO" --name-only)
+          owned=$(grep -vE '^[[:space:]]*(#|$)' .github/CODEOWNERS | awk '{print $1}' | sed 's#^/##')
+
+          human=false; spec=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            for p in $owned; do
+              case "$f" in "$p"*) human=true; echo "owned: $f (/$p)";; esac
+            done
+            case "$f" in spec/*) spec=true;; esac
+          done <<<"$files"
+
+          if $human; then gh pr edit "$PR" --repo "$REPO" --add-label needs-human
+          else gh pr edit "$PR" --repo "$REPO" --remove-label needs-human || true; fi
+          if $spec;  then gh pr edit "$PR" --repo "$REPO" --add-label spec-change
+          else gh pr edit "$PR" --repo "$REPO" --remove-label spec-change || true; fi
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
