@@ -84,6 +84,7 @@ Other commands:
 ## Troubleshooting
 
 - **A doctl command fails with an unknown flag.** Managed Agents is in public preview and its CLI is changing. Run `./swarm.sh check`, compare with `doctl harness-runtime <command> --help`, and adjust `swarm.sh`.
+- **doctl asks for an Anthropic API key.** Don't paste one. The `claude-code` adapter requires `ANTHROPIC_API_KEY`, and our Claude Code agents send it to DigitalOcean Inference, so `swarm.sh` sets it to your DigitalOcean model access key automatically. If you see the prompt, you're running `doctl` directly instead of through `swarm.sh`, or `.env` isn't loaded.
 - **What did an agent say?** `cat infra/agents/.swarm/<name>.log` for its replies to each prompt; `./swarm.sh logs <name>` for the full event history on DigitalOcean.
 - **An agent asked for approval.** Prompts run with `--on-hitl reject`, so approval requests are refused rather than left hanging. If an agent keeps hitting one, add an explicit rule for it in `specs/<adapter>.yaml`.
 - **An agent times out installing something.** Its host isn't in the spec's `egress` list. Add it to `specs/<adapter>.yaml` and recreate the session.

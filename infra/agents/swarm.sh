@@ -46,6 +46,11 @@ fi
 need_creds() {
   [[ -n "${HARNESS_INFERENCE_API_KEY:-}" ]] || die "HARNESS_INFERENCE_API_KEY is not set (see .env.example)"
   [[ -n "${GITHUB_TOKEN:-}" ]] || die "GITHUB_TOKEN is not set (see .env.example)"
+  # The claude-code adapter requires ANTHROPIC_API_KEY. Our Claude Code agents
+  # send it to DigitalOcean Inference (ANTHROPIC_BASE_URL in the spec), so it
+  # must be the DigitalOcean model access key, never a real Anthropic key.
+  # This export only affects doctl processes started by this script.
+  export ANTHROPIC_API_KEY="$HARNESS_INFERENCE_API_KEY"
 }
 
 need_doctl() { command -v doctl >/dev/null || die "doctl not found (brew install doctl)"; }
