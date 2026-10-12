@@ -159,10 +159,7 @@ fn main() -> ExitCode {
         .and_then(|v| v.parse().ok())
         .unwrap_or(1.0);
 
-    println!(
-        "{:<28} {:>12} {:>12}  {}",
-        "case", "measured", "budget", "source"
-    );
+    println!("{:<28} {:>12} {:>12}  source", "case", "measured", "budget");
     let mut failed = false;
     for b in BUDGETS.iter().filter(|b| full || !b.full) {
         let limit = (b.limit as f64 * scale) as u64;
