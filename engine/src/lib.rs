@@ -4,6 +4,15 @@
 //! code checker, game library (stdlib), map generator, ghost builder, and
 //! telemetry sharder.
 
+// No host floats in game logic (AGENTS.md §8). Tests that need a host float
+// as an oracle may `#[allow]` these locally. The banned types and methods
+// (HashMap, clocks, ambient RNG, env, fs) are configured in `clippy.toml`.
+#![deny(
+    clippy::float_arithmetic,
+    clippy::float_cmp,
+    clippy::cast_precision_loss
+)]
+
 pub mod ruleset;
 
 /// World model: chunked grid, cells, terrain, ownership, integrity, marks,

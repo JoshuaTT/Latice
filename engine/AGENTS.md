@@ -40,6 +40,15 @@ cargo bench -p lattice-engine -- --budget
   no unordered iteration, no host floats, no ambient inputs, seeded RNG only,
   deterministic parallelism.
 
+## Determinism lints
+
+`engine/clippy.toml` bans `HashMap`/`HashSet` (std and hashbrown), `Instant`,
+`SystemTime`, `thread_rng`/`rand::random`, `getrandom`, `std::env::var(s)`,
+`thread::current`, and the `std::fs` read entry points. `lib.rs` denies host
+float arithmetic and comparison (`clippy::float_arithmetic`, `float_cmp`,
+`cast_precision_loss`). The only exception is `Ruleset::from_path`. Any new
+`#[allow(clippy::disallowed_...)]` needs a reason in the code and in the PR.
+
 ## What not to touch
 
 - `spec/` — spec changes need a separate PR and human approval.

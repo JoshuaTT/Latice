@@ -1,0 +1,28 @@
+# Determinism lints (AGENTS.md §8). Clippy reads this file for lattice-engine.
+# A new exception needs `#[allow(clippy::disallowed_...)]` plus a reason in the PR.
+
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "unordered iteration (AGENTS.md §8); use BTreeMap, IndexMap, or sort first" },
+    { path = "std::collections::HashSet", reason = "unordered iteration (AGENTS.md §8); use BTreeSet, or sort first" },
+    { path = "hashbrown::HashMap", reason = "unordered iteration (AGENTS.md §8); use BTreeMap, IndexMap, or sort first" },
+    { path = "hashbrown::HashSet", reason = "unordered iteration (AGENTS.md §8); use BTreeSet, or sort first" },
+    { path = "std::time::Instant", reason = "wall clock is an ambient input (AGENTS.md §8); pass ticks, not time" },
+    { path = "std::time::SystemTime", reason = "wall clock is an ambient input (AGENTS.md §8); pass ticks, not time" },
+]
+
+disallowed-methods = [
+    # allow-invalid: these only resolve when rand's std/thread_rng features (or
+    # getrandom) are compiled in; they must be banned if a feature ever adds them.
+    { path = "rand::thread_rng", reason = "seeded RNG only (AGENTS.md §8); use rng::MatchRng", allow-invalid = true },
+    { path = "rand::rng", reason = "seeded RNG only (AGENTS.md §8); use rng::MatchRng", allow-invalid = true },
+    { path = "rand::random", reason = "seeded RNG only (AGENTS.md §8); use rng::MatchRng", allow-invalid = true },
+    { path = "getrandom::getrandom", reason = "OS entropy is an ambient input (AGENTS.md §8); use rng::MatchRng", allow-invalid = true },
+    { path = "std::env::var", reason = "environment is an ambient input (AGENTS.md §8)" },
+    { path = "std::env::vars", reason = "environment is an ambient input (AGENTS.md §8)" },
+    { path = "std::thread::current", reason = "thread ids must not reach game logic (AGENTS.md §8)" },
+    { path = "std::time::SystemTime::now", reason = "wall clock is an ambient input (AGENTS.md §8)" },
+    { path = "std::time::Instant::now", reason = "wall clock is an ambient input (AGENTS.md §8)" },
+    { path = "std::fs::read", reason = "file system is an ambient input (AGENTS.md §8); take a &str or a value" },
+    { path = "std::fs::read_to_string", reason = "file system is an ambient input (AGENTS.md §8); take a &str or a value" },
+    { path = "std::fs::File::open", reason = "file system is an ambient input (AGENTS.md §8); take a &str or a value" },
+]
