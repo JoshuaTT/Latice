@@ -47,6 +47,12 @@ pub struct Structure {
     pub pos: Pos,
     pub hp: u32,
     pub firewall: u32,
+    /// Energy held locally; non-zero only for Batteries (game-design §4.3).
+    pub stored_energy: u32,
+    /// Module a Sentinel runs, if any, and its `mem` (canonical value bytes,
+    /// see `hash.rs`).
+    pub module: Option<String>,
+    pub mem: Vec<u8>,
 }
 
 /// A team's Core: 3×3 around `pos` (its centre cell).

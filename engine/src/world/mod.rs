@@ -5,6 +5,7 @@
 
 pub mod entity;
 pub mod grid;
+pub mod hash;
 
 use std::collections::BTreeMap;
 
@@ -211,6 +212,9 @@ mod tests {
             pos,
             hp: 20,
             firewall: 0,
+            stored_energy: 0,
+            module: None,
+            mem: Vec::new(),
         }
     }
 
