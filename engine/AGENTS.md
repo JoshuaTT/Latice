@@ -30,8 +30,12 @@ cargo bench -p lattice-engine -- --budget
 - `cargo build` and `cargo test` must pass.
 - The module stubs must exactly match the names listed in
   `spec/system-design.md` §2.1: `world`, `tick`, `vm`, `checker`, `stdlib`,
-  `mapgen`, `ghost`, `shard`.
-- All game parameters must be read from rulesets, never hard-coded.
+  `mapgen`, `ghost`, `shard`. Shared support modules sit beside them
+  (`ruleset`).
+- All game parameters must be read from rulesets, never hard-coded. Load them
+  with `ruleset::Ruleset::from_toml_str` (it rejects unknown and missing keys)
+  and compute board-scaled values with `Ruleset::derived(side)`. Game logic
+  takes the string or the struct, never a path.
 - Determinism rules (root `AGENTS.md` §8) apply to all logic under this crate:
   no unordered iteration, no host floats, no ambient inputs, seeded RNG only,
   deterministic parallelism.
