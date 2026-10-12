@@ -230,6 +230,8 @@ Drones on the same team can communicate three ways, each with its own trade-offs
 | **Behaviors** | `patrol(points)`, `guard(pos)`, `swarm_to(pos)`, `kite(target)`, `follow(drone)`: high-level helpers, more fuel-hungry than hand-written logic |
 | **Utility** | `me.now`, `me.rand()` (seeded), `me.mem`, `me.log(text)` (shows in the author's telemetry) |
 
+The exact signatures, kinds, fuel costs, return values, and failure behaviour of every name in this table are specified in [`spec/lattice-api.md`](lattice-api.md) — the reference the checker, the VM's object model, the stdlib bindings, and the house bots build against.
+
 ### 5.8 Example: two modules by two authors
 
 ```python
@@ -511,6 +513,8 @@ Every number in this doc is a tunable parameter. They are listed here so the tun
 | Core HP / firewall | 200 / 40 | — |
 | Drone HP / firewall | 10 / 3 | — |
 | Score weights | see §13 | — |
+
+The `lattice` library's fuel costs and behavior knobs ([`lattice-api.md`](lattice-api.md) §13) are ruleset keys under `[fuel]`, `[behaviors]`, `[comms]`, and `[marks]`; they join this table when that ruleset change lands (after the clash-mechanics change, issue #37).
 
 ---
 
