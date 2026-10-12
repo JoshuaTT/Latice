@@ -17,6 +17,7 @@ pub mod error;
 pub mod events;
 pub mod game;
 pub mod ruleset;
+pub mod snapshot;
 
 /// World model: chunked grid, cells, terrain, ownership, integrity, marks,
 /// structures, drones, Cores, Relics.
