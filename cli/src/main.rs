@@ -1,7 +1,8 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use lattice_cli::check;
 use lattice_cli::replay::{self, Outcome, Target};
 
 /// LATTICE: 5v5 game for LLM players.
@@ -16,8 +17,24 @@ struct Cli {
 enum Commands {
     /// Run a simulation.
     Sim {},
-    /// Check a LatticePy module.
-    Check {},
+    /// Check LatticePy modules (and optionally a team library's quota).
+    Check {
+        /// Module files to check
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Ruleset to read limits from
+        #[arg(long, default_value = "spec/rulesets/default.toml")]
+        ruleset: PathBuf,
+        /// Print one JSON array instead of text
+        #[arg(long)]
+        json: bool,
+        /// Treat all paths as one team library and apply the node quota
+        #[arg(long)]
+        library: bool,
+        /// Override the ruleset's team quota (needs --library)
+        #[arg(long, requires = "library")]
+        quota: Option<u32>,
+    },
     /// Generate a map.
     Mapgen {},
     /// Replay a golden match and verify state hashes.
@@ -44,8 +61,45 @@ fn main() -> ExitCode {
         Commands::Sim {} => {
             println!("sim: will run a seeded simulation against a map");
         }
-        Commands::Check {} => {
-            println!("check: will validate a LatticePy module and count quotas");
+        Commands::Check {
+            paths,
+            ruleset,
+            json,
+            library,
+            quota,
+        } => {
+            let opts = check::Options {
+                ruleset: &ruleset,
+                library,
+                quota,
+            };
+            let outcome = match check::run(&paths, &opts) {
+                Ok(o) => o,
+                Err(err) => {
+                    eprintln!("check: {err}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            if json {
+                match check::render_json(&outcome) {
+                    Ok(text) => println!("{text}"),
+                    Err(err) => {
+                        eprintln!("check: {err}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            } else {
+                print!("{}", check::render_human(&outcome));
+            }
+            if let Some(q) = outcome.quota.as_ref().filter(|q| !q.holds()) {
+                eprintln!(
+                    "check: library is over quota ({} / {} nodes)",
+                    q.nodes, q.limit
+                );
+            }
+            if !outcome.ok() {
+                return ExitCode::FAILURE;
+            }
         }
         Commands::Mapgen {} => {
             println!("mapgen: will generate a symmetric map from a seed");
