@@ -19,11 +19,17 @@ cargo fmt   -- -p lattice-engine --check
 cargo clippy -p lattice-engine --all-targets --all-features -- -D warnings
 ```
 
-When benchmarks exist (M1+):
+Benchmarks (`engine/benches/budget.rs`, a custom `harness = false` runner):
 
 ```bash
-cargo bench -p lattice-engine -- --budget
+cargo bench -p lattice-engine -- --budget            # PR-sized cases; exits non-zero over budget
+cargo bench -p lattice-engine -- --budget --full     # adds worst-case cases (none yet: 1024² clash is M2)
+cargo bench -p lattice-engine -- --budget --budget-scale 0.0001   # proves failure: shrinks every budget
 ```
+
+Budgets live in one table in that file, each citing its spec line. Add a case
+there when a new piece of code has a performance budget. The library's own
+bench harness is disabled (`[lib] bench = false`) because it rejects `--budget`.
 
 ## Acceptance tests
 
