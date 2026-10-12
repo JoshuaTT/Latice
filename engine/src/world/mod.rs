@@ -540,10 +540,7 @@ mod tests {
         let forge = w
             .add_structure(Structure {
                 kind: StructureKind::Forge,
-                team: Team::A,
-                pos: p(10, 10),
-                hp: 20,
-                firewall: 0,
+                ..barrier(p(10, 10))
             })
             .unwrap();
         assert_eq!(w.grid.get(p(10, 10)).unwrap().terrain, Terrain::Forge);
@@ -683,7 +680,16 @@ mod prop {
             let mut w = World::new(64, &Ruleset::from_path(&path).unwrap()).unwrap();
             let mut ids: Vec<EntityId> = Vec::new();
             let at = |x, y| Pos { x, y };
-            let structure = |kind, x, y| Structure { kind, team: Team::A, pos: at(x, y), hp: 20, firewall: 0 };
+            let structure = |kind, x, y| Structure {
+                kind,
+                team: Team::A,
+                pos: at(x, y),
+                hp: 20,
+                firewall: 0,
+                stored_energy: 0,
+                module: None,
+                mem: Vec::new(),
+            };
             for op in ops {
                 // Failed operations must leave the world valid too.
                 match op {
