@@ -16,6 +16,14 @@ sha2 = "0.11.0"
 thiserror = "2.0.21"
 toml = "1.1.8"
 
+# The default libtest bench harness rejects `--budget`; only `budget` is a bench.
+[lib]
+bench = false
+
+[[bench]]
+name = "budget"
+harness = false
+
 [dev-dependencies]
 jsonschema = { version = "0.58.6", default-features = false }
 proptest = { version = "1", default-features = false, features = ["std"] }
