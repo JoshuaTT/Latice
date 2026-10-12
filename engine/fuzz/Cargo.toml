@@ -1,0 +1,22 @@
+[package]
+name = "lattice-engine-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+lattice-engine = { path = ".." }
+
+# Not a member of the main workspace, so stable CI builds without nightly.
+[workspace]
+
+[[bin]]
+name = "checker"
+path = "fuzz_targets/checker.rs"
+test = false
+doc = false
+bench = false
