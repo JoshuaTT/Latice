@@ -4,9 +4,10 @@
 //! to do instead; all diagnostics are collected, not just the first.
 
 use super::ast::{self as own, Pos};
-use super::{Diagnostic, MAX_EXPR_DEPTH};
+use super::{Diagnostic, MAX_EXPR_DEPTH, Severity};
 use rustpython_parser::ast::{self, Ranged};
 use rustpython_parser::text_size::TextSize;
+use std::collections::BTreeSet;
 
 pub(super) struct Lower<'a> {
     src: &'a str,
@@ -17,6 +18,11 @@ pub(super) struct Lower<'a> {
     pub nodes: usize,
     depth: usize,
     loops: usize,
+    /// Module-level functions, constants and explicitly imported names.
+    globals: BTreeSet<String>,
+    /// Names bound so far in the current function: parameters, assignment,
+    /// loop and comprehension targets.
+    locals: BTreeSet<String>,
 }
 
 type E = own::Expr;
@@ -32,6 +38,8 @@ impl<'a> Lower<'a> {
             nodes: 0,
             depth: 0,
             loops: 0,
+            globals: BTreeSet::new(),
+            locals: BTreeSet::new(),
         }
     }
 
@@ -49,13 +57,20 @@ impl<'a> Lower<'a> {
         }
     }
 
+    /// Report a banned construct. The stable code comes from [`code_of`].
     pub fn bad(&mut self, at: TextSize, construct: &str, why: &str) {
+        let message = format!("`{construct}` is not allowed in LatticePy: {why}");
+        self.error(at, code_of(construct), message);
+    }
+
+    pub fn error(&mut self, at: TextSize, code: &'static str, message: String) {
         let Pos { line, col } = self.pos(at);
         self.diags.push(Diagnostic {
+            severity: Severity::Error,
+            code,
             line,
             col,
-            construct: construct.to_string(),
-            message: format!("`{construct}` is not allowed in LatticePy: {why}"),
+            message,
         });
     }
 
@@ -67,6 +82,7 @@ impl<'a> Lower<'a> {
     }
 
     pub fn module(&mut self, body: &[ast::Stmt]) -> own::Module {
+        self.collect_globals(body);
         let mut out = Vec::new();
         let mut imported = false;
         for s in body {
@@ -94,6 +110,30 @@ impl<'a> Lower<'a> {
             }
         }
         own::Module { body: out }
+    }
+
+    /// Module-level names, gathered first so functions may refer to each other
+    /// and to constants regardless of order.
+    fn collect_globals(&mut self, body: &[ast::Stmt]) {
+        fn names(e: &ast::Expr, out: &mut Vec<String>) {
+            match e {
+                ast::Expr::Name(n) => out.push(n.id.to_string()),
+                ast::Expr::Tuple(t) => t.elts.iter().for_each(|x| names(x, out)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for s in body {
+            match s {
+                ast::Stmt::FunctionDef(f) => found.push(f.name.to_string()),
+                ast::Stmt::Assign(a) => a.targets.iter().for_each(|t| names(t, &mut found)),
+                ast::Stmt::ImportFrom(i) => {
+                    found.extend(i.names.iter().map(|a| a.name.to_string()))
+                }
+                _ => {}
+            }
+        }
+        self.globals.extend(found.into_iter().filter(|n| n != "*"));
     }
 
     fn block(&mut self, body: &[ast::Stmt]) -> Vec<own::Stmt> {
@@ -146,7 +186,10 @@ impl<'a> Lower<'a> {
                 }
                 let params = self.params(&f.args, at);
                 let outer_loops = std::mem::replace(&mut self.loops, 0);
+                let outer_locals = std::mem::take(&mut self.locals);
+                self.locals.extend(params.iter().map(|p| p.name.clone()));
                 let body = self.block(&f.body);
+                self.locals = outer_locals;
                 self.loops = outer_loops;
                 K::FunctionDef { name: f.name.to_string(), params, body }
             }
@@ -155,8 +198,9 @@ impl<'a> Lower<'a> {
                 if a.targets.len() != 1 {
                     self.bad(at, "chained assignment `a = b = ...`", "assign each name on its own line.");
                 }
-                let target = a.targets.first().map(|t| self.target(t, true)).unwrap_or_else(|| self.placeholder(at));
-                K::Assign { target, value: self.expr(&a.value) }
+                let value = self.expr(&a.value);
+                let target = a.targets.first().map(|t| self.target(t, true, true)).unwrap_or_else(|| self.placeholder(at));
+                K::Assign { target, value }
             }
             ast::Stmt::AugAssign(a) => {
                 let op = match bin_op(&a.op) {
@@ -166,7 +210,9 @@ impl<'a> Lower<'a> {
                         own::BinOp::Add
                     }
                 };
-                K::AugAssign { target: self.target(&a.target, true), op, value: self.expr(&a.value) }
+                // The target is read as well as written, so it must already exist.
+                let target = self.target(&a.target, true, false);
+                K::AugAssign { target, op, value: self.expr(&a.value) }
             }
             ast::Stmt::AnnAssign(a) => {
                 let annotation = match &*a.annotation {
@@ -176,18 +222,16 @@ impl<'a> Lower<'a> {
                         String::new()
                     }
                 };
-                K::AnnAssign {
-                    target: self.target(&a.target, false),
-                    annotation,
-                    value: a.value.as_ref().map(|v| self.expr(v)),
-                }
+                let value = a.value.as_ref().map(|v| self.expr(v));
+                K::AnnAssign { target: self.target(&a.target, false, true), annotation, value }
             }
             ast::Stmt::If(i) => K::If { test: self.expr(&i.test), body: self.block(&i.body), orelse: self.block(&i.orelse) },
             ast::Stmt::For(f) => {
                 if !f.orelse.is_empty() {
                     self.bad(f.orelse[0].range().start(), "for ... else", "loop `else` blocks are not supported. Use a flag variable.");
                 }
-                let (target, iter) = (self.target(&f.target, false), self.expr(&f.iter));
+                let iter = self.expr(&f.iter);
+                let target = self.target(&f.target, false, true);
                 self.loops += 1;
                 let body = self.block(&f.body);
                 self.loops -= 1;
@@ -283,13 +327,30 @@ impl<'a> Lower<'a> {
 
     /// An assignment / loop target: a name, a tuple of targets, or (when
     /// `subscripts`) an index like `me.mem["k"]`.
-    fn target(&mut self, t: &ast::Expr, subscripts: bool) -> E {
+    /// With `declare`, a name target is bound for later reads; without it the
+    /// name must already exist (augmented assignment).
+    fn target(&mut self, t: &ast::Expr, subscripts: bool, declare: bool) -> E {
         let at = t.range().start();
         match t {
+            ast::Expr::Name(n) if declare => {
+                self.nodes += 1;
+                if n.id.as_str().starts_with("__") {
+                    self.name(n.id.as_str(), at);
+                }
+                self.locals.insert(n.id.to_string());
+                E {
+                    pos: self.pos(at),
+                    kind: own::ExprKind::Name(n.id.to_string()),
+                }
+            }
             ast::Expr::Name(_) => self.expr(t),
             ast::Expr::Tuple(tu) => {
                 self.nodes += 1;
-                let elts = tu.elts.iter().map(|e| self.target(e, subscripts)).collect();
+                let elts = tu
+                    .elts
+                    .iter()
+                    .map(|e| self.target(e, subscripts, declare))
+                    .collect();
                 E {
                     pos: self.pos(at),
                     kind: own::ExprKind::Tuple(elts),
@@ -407,11 +468,7 @@ impl<'a> Lower<'a> {
             ast::Expr::Subscript(s) => self.subscript(s),
             ast::Expr::Attribute(a) => {
                 if a.attr.as_str().starts_with("__") {
-                    self.bad(
-                        at,
-                        a.attr.as_str(),
-                        "dunder attributes are reflection and are not available.",
-                    );
+                    self.error(at, "E_DUNDER", format!("`{}` is not allowed in LatticePy: dunder attributes are reflection and are not available.", a.attr));
                 }
                 K::Attr {
                     value: self.boxed(&a.value),
@@ -480,25 +537,63 @@ impl<'a> Lower<'a> {
         }
     }
 
+    /// Resolve a free name load. Names are denied unless they are in scope or on
+    /// the allow-list (latticepy §2); the deny-list only picks friendlier text.
     fn name(&mut self, id: &str, at: TextSize) {
-        let why = match id {
+        if self.locals.contains(id)
+            || self.globals.contains(id)
+            || ALLOWED_GLOBALS.contains(&id)
+            || LATTICE_EXPORTS.contains(&id)
+        {
+            return;
+        }
+        let banned = match id {
             "open" | "print" | "input" => {
-                "there is no I/O. Use `me.log(...)` to record information."
+                Some("there is no I/O. Use `me.log(...)` to record information.")
             }
-            "os" | "sys" | "io" | "time" | "datetime" | "threading" | "asyncio" | "random" => {
-                "there are no modules. `me.now` is the tick counter and `me.rand()` is the seeded random source."
-            }
+            "os" | "sys" | "io" | "time" | "datetime" | "threading" | "asyncio" | "random" => Some(
+                "there are no modules. `me.now` is the tick counter and `me.rand()` is the seeded random source.",
+            ),
             "eval" | "exec" | "compile" | "__import__" | "getattr" | "setattr" | "hasattr"
             | "delattr" | "vars" | "dir" | "type" | "isinstance" | "globals" | "locals"
-            | "hash" => "reflection and dynamic code are not available.",
+            | "hash" => Some("reflection and dynamic code are not available."),
             "set" | "frozenset" => {
-                "sets have no deterministic order and are banned. Use a list or a dict."
+                Some("sets have no deterministic order and are banned. Use a list or a dict.")
             }
-            "float" => "host floats are banned. Use the `lattice` software float.",
-            _ if id.starts_with("__") => "dunder names are reflection and are not available.",
-            _ => return,
+            "float" => Some("host floats are banned. Use the `lattice` software float."),
+            _ if id.starts_with("__") => Some("dunder names are reflection and are not available."),
+            _ => None,
         };
-        self.bad(at, id, why);
+        if let Some(why) = banned {
+            let code = if id.starts_with("__") {
+                "E_DUNDER"
+            } else {
+                "E_BANNED_NAME"
+            };
+            self.error(
+                at,
+                code,
+                format!("`{id}` is not allowed in LatticePy: {why}"),
+            );
+            return;
+        }
+        let hint = self
+            .locals
+            .iter()
+            .map(String::as_str)
+            .chain(self.globals.iter().map(String::as_str))
+            .chain(ALLOWED_GLOBALS.iter().copied())
+            .chain(LATTICE_EXPORTS.iter().copied())
+            .map(|c| (edit_distance(id, c), c))
+            .filter(|&(d, c)| d <= 2 && d * 2 <= c.len().max(id.len()))
+            .min()
+            .map(|(_, c)| format!(" Did you mean `{c}`?"))
+            .unwrap_or_default();
+        self.error(
+            at,
+            "E_UNKNOWN_NAME",
+            format!("`{id}` is not defined. Only module functions and constants, local variables, `me`, `team`, `seen`, `range`, `str` and names imported from `lattice` can be used.{hint}"),
+        );
     }
 
     fn call(&mut self, c: &ast::ExprCall, at: TextSize) -> own::ExprKind {
@@ -582,11 +677,15 @@ impl<'a> Lower<'a> {
                 "a list comprehension may have at most one `if`. Join conditions with `and`.",
             );
         }
+        let iter = self.boxed(&g.iter);
+        let target = Box::new(self.target(&g.target, false, true));
+        let cond = g.ifs.first().map(|x| self.boxed(x));
+        let elt = self.boxed(&l.elt);
         own::ExprKind::ListComp {
-            target: Box::new(self.target(&g.target, false)),
-            iter: self.boxed(&g.iter),
-            cond: g.ifs.first().map(|x| self.boxed(x)),
-            elt: self.boxed(&l.elt),
+            elt,
+            target,
+            iter,
+            cond,
         }
     }
 }
@@ -640,4 +739,64 @@ fn is_literal(e: &E) -> bool {
         K::Dict(kv) => kv.iter().all(|(k, v)| is_literal(k) && is_literal(v)),
         _ => false,
     }
+}
+
+/// Names every free `Name` load may resolve to besides module and local names
+/// (latticepy §1.2 `For` over `range`, §1.3 `str(...)`, the `me`/`team`/`seen`
+/// handles of §1.3 `Attribute`). Builtins the spec does not name wait for the
+/// `lattice` library API (#38).
+const ALLOWED_GLOBALS: [&str; 5] = ["range", "str", "me", "team", "seen"];
+
+/// Names exported by `lattice` itself. Empty until the library API (#38)
+/// defines them; until then a module names what it uses with
+/// `from lattice import a, b`, which is the only way to bring more in.
+const LATTICE_EXPORTS: [&str; 0] = [];
+
+/// Stable code for each banned construct (the table in `checker/mod.rs`).
+fn code_of(construct: &str) -> &'static str {
+    match construct {
+        "import" | "from lattice import" => "E_IMPORT",
+        "top-level assignment" | "top-level statement" => "E_TOPLEVEL",
+        "deep nesting" => "E_NESTING",
+        "decorator"
+        | "type parameters"
+        | "positional-only parameters `/`"
+        | "keyword-only parameters"
+        | "*args"
+        | "**kwargs"
+        | "non-literal default" => "E_PARAMS",
+        "chained assignment `a = b = ...`" | "attribute assignment" | "assignment target" => {
+            "E_ASSIGN_TARGET"
+        }
+        "augmented assignment operator" | "/" | "**" | "@" => "E_OPERATOR",
+        "annotation" => "E_ANNOTATION",
+        "for ... else" | "while ... else" => "E_LOOP_ELSE",
+        "break/continue outside a loop" => "E_LOOP_CONTROL",
+        "try" | "raise" | "with" | "assert" | "global" | "nonlocal" | "del" | "class" | "async"
+        | "match" | "type alias" => "E_STMT_BANNED",
+        "nested comprehension" | "comprehension filters" | "async comprehension" => {
+            "E_COMPREHENSION"
+        }
+        "call of a computed value" | "**kwargs in a call" => "E_CALL",
+        "slice step" => "E_SLICE",
+        "integer literal" => "E_INT_RANGE",
+        "float literal" => "E_FLOAT",
+        "literal" => "E_LITERAL",
+        _ => "E_EXPR_BANNED",
+    }
+}
+
+/// Levenshtein distance, for "did you mean" hints on unknown names.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut prev = std::mem::replace(&mut row[0], i + 1);
+        for (j, &cb) in b.iter().enumerate() {
+            let cur = row[j + 1];
+            row[j + 1] = (prev + usize::from(ca != cb)).min(cur + 1).min(row[j] + 1);
+            prev = cur;
+        }
+    }
+    row[b.len()]
 }

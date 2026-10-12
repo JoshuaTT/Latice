@@ -1,10 +1,23 @@
 //! Checker tests (latticepy §1, §2, §7; game-design §5.8). Expectations come
 //! from the spec, not from current behavior.
 
-use lattice_engine::checker::{MAX_CODE_NODES, check, check_bytes};
+use lattice_engine::checker::{CheckReport, MAX_CODE_NODES, Severity};
+use lattice_engine::ruleset::Ruleset;
 use proptest::prelude::*;
 
-const SCOUT: &str = r#"from lattice import *
+fn ruleset() -> Ruleset {
+    Ruleset::from_toml_str(include_str!("../../spec/rulesets/default.toml")).unwrap()
+}
+
+fn check(src: &str) -> CheckReport {
+    lattice_engine::checker::check(src, &ruleset())
+}
+
+fn check_bytes(src: &[u8]) -> CheckReport {
+    lattice_engine::checker::check_bytes(src, &ruleset())
+}
+
+const SCOUT: &str = r#"from lattice import EAST, turn_right
 
 def init(me, args):
     me.mem["dir"] = args.get("dir", EAST)
@@ -18,7 +31,7 @@ def tick(me):
     me.move(me.mem["dir"])
 "#;
 
-const WARDEN: &str = r#"from lattice import *
+const WARDEN: &str = r#"from lattice import Pos, guard
 
 def tick(me):
     threat = team.board.get("threat")
@@ -56,7 +69,8 @@ fn scout_passes_with_pinned_node_count() {
     let r = check(SCOUT);
     assert!(r.ok, "{:?}", r.diagnostics);
     assert_eq!(r.node_count, 74);
-    assert!(r.module.is_some());
+    assert!(r.interface.init && r.interface.tick);
+    assert!(!r.interface.on_hit && !r.interface.on_hacked && !r.interface.on_radio);
 }
 
 #[test]
@@ -228,7 +242,7 @@ fn interface_violations() {
     assert!(
         r.diagnostics
             .iter()
-            .any(|d| d.construct == "tick" && d.line == 3)
+            .any(|d| d.code == "E_INTERFACE" && d.line == 3)
     );
     let r = check(
         "def init(me, args):\n    pass\ndef tick(me):\n    pass\ndef on_hit(me):\n    pass\n",
@@ -236,7 +250,7 @@ fn interface_violations() {
     assert!(
         r.diagnostics
             .iter()
-            .any(|d| d.construct == "on_hit" && d.line == 5)
+            .any(|d| d.code == "E_INTERFACE" && d.line == 5)
     );
     let r = check("def init(me, args=1):\n    pass\ndef tick(me):\n    pass\n");
     assert!(!r.ok);
@@ -246,7 +260,7 @@ fn interface_violations() {
 fn syntax_errors_have_positions() {
     let r = check("def tick(me:\n");
     assert!(!r.ok);
-    assert_eq!(r.diagnostics[0].construct, "syntax");
+    assert_eq!(r.diagnostics[0].code, "E_SYNTAX");
 }
 
 #[test]
@@ -254,7 +268,7 @@ fn oversized_modules_are_rejected() {
     let body = "    me.f(1)\n".repeat(MAX_CODE_NODES / 5 + 1);
     let r = check(&format!("{WRAP}def tick(me):\n{body}"));
     assert!(!r.ok);
-    assert!(r.diagnostics.iter().any(|d| d.construct == "module size"));
+    assert!(r.diagnostics.iter().any(|d| d.code == "E_NODE_CAP"));
 }
 
 #[test]
@@ -332,9 +346,82 @@ fn four_thousand_node_module_checks_quickly() {
     let r = check(&src);
     let elapsed = start.elapsed();
     assert!(r.ok, "{:?}", r.diagnostics.first());
-    assert!(r.node_count > MAX_CODE_NODES * 9 / 10);
+    assert!(r.node_count as usize > MAX_CODE_NODES * 9 / 10);
     // The 50 ms budget (system design §2.1) is for release builds; debug builds
     // get slack so CI stays stable.
     let budget = if cfg!(debug_assertions) { 1_000 } else { 50 };
     assert!(elapsed.as_millis() < budget, "took {elapsed:?}");
+}
+
+#[test]
+fn names_are_allow_listed() {
+    // Builtins and names the spec does not grant are denied by default.
+    for name in [
+        "id",
+        "object",
+        "super",
+        "breakpoint",
+        "iter",
+        "next",
+        "totally_undefined",
+    ] {
+        let r = check(&in_tick(&format!("    x = {name}(me)")));
+        let d = r
+            .diagnostics
+            .iter()
+            .find(|d| d.message.contains(&format!("`{name}`")));
+        let d = d.unwrap_or_else(|| panic!("`{name}` accepted: {:?}", r.diagnostics));
+        assert_eq!(d.code, "E_UNKNOWN_NAME");
+        assert_eq!(d.line, 5);
+    }
+    // Names in scope are accepted: parameter, local, loop and comprehension
+    // targets, module constant, module function, `range`/`str`, explicit import.
+    let src = "from lattice import EAST\nLIMIT = 3\ndef helper(a):\n    return a\ndef init(me, args):\n    pass\ndef tick(me):\n    n = LIMIT\n    for i in range(n):\n        n = helper(str(i))\n    ys = [j for j in range(2)]\n    me.move(EAST, ys, later())\ndef later():\n    return 1\n";
+    let r = check(src);
+    assert!(r.ok, "{:?}", r.diagnostics);
+    // Use before assignment and use of another function's local are rejected.
+    let r = check(&in_tick("    y = x\n    x = 1"));
+    assert!(
+        r.diagnostics
+            .iter()
+            .any(|d| d.code == "E_UNKNOWN_NAME" && d.line == 5)
+    );
+    let src = format!("{WRAP}def f(me):\n    local = 1\ndef tick(me):\n    return local\n");
+    assert!(
+        check(&src)
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "E_UNKNOWN_NAME")
+    );
+    // Known-bad names keep their friendlier code.
+    let r = check(&in_tick("    open(1)"));
+    assert_eq!(r.diagnostics[0].code, "E_BANNED_NAME");
+    // The message suggests the closest allowed name.
+    let r = check(&in_tick("    x = rnge(3)"));
+    assert!(
+        r.diagnostics[0].message.contains("Did you mean `range`?"),
+        "{:?}",
+        r.diagnostics
+    );
+}
+
+#[test]
+fn report_follows_the_engine_api_contract() {
+    let r = check(&in_tick("    print(1)\n    x = 1.5\n    open(2)"));
+    assert!(!r.ok);
+    assert!(
+        r.diagnostics
+            .iter()
+            .all(|d| d.severity == Severity::Error && d.code.starts_with("E_"))
+    );
+    let keys: Vec<_> = r
+        .diagnostics
+        .iter()
+        .map(|d| (d.line, d.col, d.code))
+        .collect();
+    assert!(keys.windows(2).all(|w| w[0] <= w[1]), "{keys:?}");
+    let r = check("def tick(me):\n    pass\ndef on_hit(me, attacker):\n    pass\n");
+    assert!(r.interface.tick && r.interface.on_hit && !r.interface.init);
+    // Identical input gives identical output.
+    assert_eq!(check(SCOUT), check(SCOUT));
 }

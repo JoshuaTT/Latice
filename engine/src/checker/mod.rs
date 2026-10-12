@@ -1,18 +1,57 @@
-//! Code checker and quota counter (system design §2.1, latticepy §1, §2, §6–§8).
+//! Code checker and quota counter (system design §2.1, latticepy §1, §2, §6–§8;
+//! engine API contract §1).
 //!
 //! [`check`] parses a module with a pinned third-party Python parser, lowers it
 //! into the crate-owned [`ast`] (rejecting everything outside the allow-list),
 //! validates the module interface and counts AST nodes for the complexity quota.
 //! It never panics and never recurses unboundedly, whatever the input.
+//!
+//! # Diagnostic codes
+//!
+//! Codes are stable and append-only (engine API contract §1); every one is an
+//! `Error` today.
+//!
+//! | Code | Meaning |
+//! |---|---|
+//! | `E_SYNTAX` | the source does not parse |
+//! | `E_ENCODING` | invalid UTF-8 ([`check_bytes`]) |
+//! | `E_NUL` | NUL byte in the source |
+//! | `E_SIZE` | source over [`MAX_SOURCE_BYTES`] or too many tokens |
+//! | `E_NESTING` | brackets, blocks or expressions nested too deeply |
+//! | `E_NODE_CAP` | more than [`MAX_CODE_NODES`] AST nodes |
+//! | `E_INTERFACE` | `init`/`tick`/handler missing or wrongly declared |
+//! | `E_IMPORT` | any import other than one `from lattice import ...` |
+//! | `E_TOPLEVEL` | module-level statement other than import, `def`, literal constant |
+//! | `E_STMT_BANNED` | `try`, `raise`, `with`, `assert`, `global`, `nonlocal`, `del`, `class`, `async`, `match`, type alias |
+//! | `E_EXPR_BANNED` | lambda, `:=`, sets, dict/set comprehension, generator, `await`, `yield`, f-string, `*` |
+//! | `E_BANNED_NAME` | a known-banned builtin or module name (`open`, `getattr`, `os`, ...) |
+//! | `E_DUNDER` | a dunder name or attribute |
+//! | `E_UNKNOWN_NAME` | a name that is not in scope or on the allow-list |
+//! | `E_PARAMS` | decorators, `*args`, `**kwargs`, keyword-only/positional-only, non-literal defaults |
+//! | `E_ASSIGN_TARGET` | chained assignment, attribute assignment, other bad target |
+//! | `E_OPERATOR` | `/`, `**`, `@`, or a banned augmented operator |
+//! | `E_ANNOTATION` | annotation that is not a plain name |
+//! | `E_LOOP_ELSE` | `for`/`while` with an `else` block |
+//! | `E_LOOP_CONTROL` | `break`/`continue` outside a loop |
+//! | `E_COMPREHENSION` | more than one `for`, more than one `if`, or async |
+//! | `E_CALL` | call of a computed value, or `**kwargs` in a call |
+//! | `E_SLICE` | slice step other than `1` or `-1` |
+//! | `E_INT_RANGE` | integer literal outside 64-bit signed |
+//! | `E_FLOAT` | float or complex literal |
+//! | `E_LITERAL` | bytes or ellipsis literal |
 
-pub mod ast;
+// Read by the VM compiler (#47); nothing consumes the fields yet.
+#[allow(dead_code)]
+pub(crate) mod ast;
 mod lower;
 
+use crate::ruleset::Ruleset;
 use rustpython_parser::{Mode, Tok, lexer, parse};
 
 /// Hard cap on AST nodes per module (latticepy §6 `max_code_nodes`). A
-/// structural sandbox limit, not a tunable; a player's smaller quota is
-/// enforced by the caller against [`CheckReport::node_count`].
+/// structural sandbox limit, not a tunable; a team's smaller quota
+/// (`team_complexity_nodes`) is enforced by the caller against
+/// [`CheckReport::node_count`].
 pub const MAX_CODE_NODES: usize = 4_000;
 
 /// Largest source accepted, in bytes. Well above what 4,000 nodes need; keeps
@@ -27,29 +66,47 @@ pub const MAX_EXPR_DEPTH: usize = 128;
 /// tree as deep as it is long, so this also bounds the parser's tree depth.
 const MAX_TOKENS: usize = 16_384;
 
+/// Whether a diagnostic blocks deployment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
 /// One problem found in a module, written for an LLM reader.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
+    pub severity: Severity,
+    /// Stable code from the table in the module docs, e.g. `E_IMPORT`.
+    pub code: &'static str,
     /// 1-based line.
     pub line: u32,
     /// 1-based column in characters.
     pub col: u32,
-    /// The offending construct as the player wrote or would recognise it.
-    pub construct: String,
-    /// Full message: the construct, why it is banned, and what to do instead.
+    /// What is wrong, where, why it is banned, and what to do instead.
     pub message: String,
 }
 
+/// Which entry points a module defines (latticepy §7).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ModuleInterface {
+    pub init: bool,
+    pub tick: bool,
+    pub on_hit: bool,
+    pub on_hacked: bool,
+    pub on_radio: bool,
+}
+
 /// Result of checking one module.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckReport {
-    /// True when the module can be deployed (no diagnostics).
+    /// True iff there are no `Error` diagnostics.
     pub ok: bool,
+    /// Sorted by `(line, col, code)`.
     pub diagnostics: Vec<Diagnostic>,
     /// Statements plus expressions in the module: the complexity-quota unit.
-    pub node_count: usize,
-    /// The allow-listed tree, present only when `ok`.
-    pub module: Option<ast::Module>,
+    pub node_count: u32,
+    pub interface: ModuleInterface,
 }
 
 /// Required and optional entry points with their exact parameter names
@@ -62,90 +119,99 @@ const INTERFACE: [(&str, &[&str], bool); 5] = [
     ("on_radio", &["me", "msg"], false),
 ];
 
-/// Check LatticePy source. Cost: linear in source size, bounded by
-/// [`MAX_SOURCE_BYTES`].
-pub fn check(source: &str) -> CheckReport {
+/// Check LatticePy source (engine API contract §1). A pure function of its
+/// arguments; cost is linear in source size, bounded by [`MAX_SOURCE_BYTES`].
+/// The ruleset is part of the contract signature for ruleset-driven limits; no
+/// per-module limit is read from it today (the team quota is applied by the
+/// caller).
+pub fn check(source: &str, ruleset: &Ruleset) -> CheckReport {
+    check_and_lower(source, ruleset).0
+}
+
+/// [`check`] plus the allow-listed tree the VM compiles from (`Some` iff `ok`).
+pub(crate) fn check_and_lower(
+    source: &str,
+    _ruleset: &Ruleset,
+) -> (CheckReport, Option<ast::Module>) {
     let mut lower = lower::Lower::new(source);
-    let reject = |diag: Diagnostic| fail(vec![diag]);
+    let early = |code, pos, message: String| (fail(vec![diag(code, pos, message)]), None);
+    let start = ast::Pos { line: 1, col: 1 };
     if let Some(i) = source.find('\0') {
         let pos = lower.pos(i.try_into().unwrap_or_default());
-        return reject(diag(
+        return early(
+            "E_NUL",
             pos,
-            "NUL byte",
-            "the source contains a NUL character. Remove it.",
-        ));
+            "the source contains a NUL character. Remove it.".into(),
+        );
     }
     if source.len() > MAX_SOURCE_BYTES {
-        let pos = ast::Pos { line: 1, col: 1 };
         let msg = format!(
             "the source is {} bytes; the limit is {MAX_SOURCE_BYTES}. Split it into smaller modules.",
             source.len()
         );
-        return reject(diag(pos, "module size", &msg));
+        return early("E_SIZE", start, msg);
     }
     if let Some(d) = prescan(source, &lower) {
-        return reject(d);
+        return (fail(vec![d]), None);
     }
     let parsed = match parse(source, Mode::Module, "<lattice>") {
         Ok(m) => m,
         Err(e) => {
-            let pos = lower.pos(e.offset);
-            return reject(diag(pos, "syntax", &format!("syntax error: {}", e.error)));
+            return early(
+                "E_SYNTAX",
+                lower.pos(e.offset),
+                format!("syntax error: {}", e.error),
+            );
         }
     };
     let rustpython_parser::ast::Mod::Module(m) = parsed else {
-        return reject(diag(
-            ast::Pos { line: 1, col: 1 },
-            "module",
-            "expected a module",
-        ));
+        return early("E_SYNTAX", start, "expected a module".into());
     };
     let module = lower.module(&m.body);
     let mut diagnostics = std::mem::take(&mut lower.diags);
-    interface(&module, &mut diagnostics);
-    let node_count = lower.nodes;
-    if node_count > MAX_CODE_NODES {
-        let pos = ast::Pos { line: 1, col: 1 };
+    let interface = interface(&module, &mut diagnostics);
+    let node_count = u32::try_from(lower.nodes).unwrap_or(u32::MAX);
+    if lower.nodes > MAX_CODE_NODES {
         let msg = format!(
             "the module has {node_count} AST nodes; the hard limit is {MAX_CODE_NODES}. Remove or simplify code."
         );
-        diagnostics.push(diag(pos, "module size", &msg));
+        diagnostics.push(diag("E_NODE_CAP", start, msg));
     }
-    diagnostics.sort_by_key(|d| (d.line, d.col));
-    let ok = diagnostics.is_empty();
-    CheckReport {
+    diagnostics.sort_by(|a, b| (a.line, a.col, a.code).cmp(&(b.line, b.col, b.code)));
+    let ok = diagnostics.iter().all(|d| d.severity != Severity::Error);
+    let report = CheckReport {
         ok,
         diagnostics,
         node_count,
-        module: ok.then_some(module),
-    }
+        interface,
+    };
+    (report, ok.then_some(module))
 }
 
 /// [`check`] for raw bytes, rejecting invalid UTF-8 with a diagnostic.
-pub fn check_bytes(source: &[u8]) -> CheckReport {
+pub fn check_bytes(source: &[u8], ruleset: &Ruleset) -> CheckReport {
     match std::str::from_utf8(source) {
-        Ok(s) => check(s),
+        Ok(s) => check(s, ruleset),
         Err(e) => {
             let line = source[..e.valid_up_to()]
                 .iter()
                 .filter(|&&b| b == b'\n')
                 .count() as u32
                 + 1;
-            fail(vec![diag(
-                ast::Pos { line, col: 1 },
-                "encoding",
-                "the source is not valid UTF-8. Save it as UTF-8 text.",
-            )])
+            let pos = ast::Pos { line, col: 1 };
+            let msg = "the source is not valid UTF-8. Save it as UTF-8 text.".into();
+            fail(vec![diag("E_ENCODING", pos, msg)])
         }
     }
 }
 
-fn diag(pos: ast::Pos, construct: &str, message: &str) -> Diagnostic {
+fn diag(code: &'static str, pos: ast::Pos, message: String) -> Diagnostic {
     Diagnostic {
+        severity: Severity::Error,
+        code,
         line: pos.line,
         col: pos.col,
-        construct: construct.to_string(),
-        message: message.to_string(),
+        message,
     }
 }
 
@@ -154,7 +220,7 @@ fn fail(diagnostics: Vec<Diagnostic>) -> CheckReport {
         ok: false,
         diagnostics,
         node_count: 0,
-        module: None,
+        interface: ModuleInterface::default(),
     }
 }
 
@@ -171,26 +237,22 @@ fn prescan(source: &str, lower: &lower::Lower) -> Option<Diagnostic> {
             _ => {}
         }
         if depth > MAX_EXPR_DEPTH {
-            return Some(diag(
-                lower.pos(range.start()),
-                "deep nesting",
-                "brackets or blocks are nested too deeply. Split the code into helper functions.",
-            ));
+            let msg =
+                "brackets or blocks are nested too deeply. Split the code into helper functions.";
+            return Some(diag("E_NESTING", lower.pos(range.start()), msg.into()));
         }
         if tokens > MAX_TOKENS {
-            return Some(diag(
-                lower.pos(range.start()),
-                "module size",
-                "the module has too many tokens. Remove or simplify code.",
-            ));
+            let msg = "the module has too many tokens. Remove or simplify code.";
+            return Some(diag("E_SIZE", lower.pos(range.start()), msg.into()));
         }
     }
     None
 }
 
 /// Check `init`/`tick` exist and entry points use the exact parameter names.
-fn interface(module: &ast::Module, out: &mut Vec<Diagnostic>) {
-    for (name, params, required) in INTERFACE {
+fn interface(module: &ast::Module, out: &mut Vec<Diagnostic>) -> ModuleInterface {
+    let mut defined = [false; INTERFACE.len()];
+    for (slot, (name, params, required)) in defined.iter_mut().zip(INTERFACE) {
         let found = module.body.iter().find_map(|s| match &s.kind {
             ast::StmtKind::FunctionDef {
                 name: n, params: p, ..
@@ -198,20 +260,31 @@ fn interface(module: &ast::Module, out: &mut Vec<Diagnostic>) {
             _ => None,
         });
         let want = format!("def {name}({})", params.join(", "));
+        *slot = found.is_some();
         match found {
             None if required => out.push(diag(
+                "E_INTERFACE",
                 ast::Pos { line: 1, col: 1 },
-                name,
-                &format!("the module must define `{want}`; the engine calls it."),
+                format!("the module must define `{want}`; the engine calls it."),
             )),
-            None => {}
             Some((pos, p))
                 if !p.iter().map(|x| x.name.as_str()).eq(params.iter().copied())
                     || p.iter().any(|x| x.default.is_some()) =>
             {
-                out.push(diag(pos, name, &format!("`{name}` must be declared exactly as `{want}` (no defaults, these parameter names).")));
+                let msg = format!(
+                    "`{name}` must be declared exactly as `{want}` (no defaults, these parameter names)."
+                );
+                out.push(diag("E_INTERFACE", pos, msg));
             }
-            Some(_) => {}
+            _ => {}
         }
+    }
+    let [init, tick, on_hit, on_hacked, on_radio] = defined;
+    ModuleInterface {
+        init,
+        tick,
+        on_hit,
+        on_hacked,
+        on_radio,
     }
 }
