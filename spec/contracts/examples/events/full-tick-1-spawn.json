@@ -1,0 +1,14 @@
+{
+  "match_id": "550e8400-e29b-41d4-a716-446655440000",
+  "epoch": 2,
+  "tick": 100,
+  "seq": 0,
+  "event_type": "spawn",
+  "payload": {
+    "spawner_id": "drone-A-001",
+    "new_drone_id": "drone-A-005",
+    "module_name": "harvester",
+    "position": { "x": 15, "y": 25 },
+    "args": { "target": "well-1" }
+  }
+}

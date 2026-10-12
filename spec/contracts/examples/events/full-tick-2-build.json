@@ -1,0 +1,12 @@
+{
+  "match_id": "550e8400-e29b-41d4-a716-446655440000",
+  "epoch": 2,
+  "tick": 100,
+  "seq": 1,
+  "event_type": "build",
+  "payload": {
+    "drone_id": "drone-A-002",
+    "structure_kind": "Relay",
+    "position": { "x": 16, "y": 26 }
+  }
+}
