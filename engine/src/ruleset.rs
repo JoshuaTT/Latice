@@ -53,6 +53,15 @@ pub struct Ruleset {
     pub score_weights: ScoreWeights,
     pub structural: Structural,
     pub mutators: Mutators,
+    pub acts: Acts,
+    pub drone: DroneParams,
+    pub economy: Economy,
+    pub structures: Structures,
+    pub cell: CellParams,
+    pub relics: RelicParams,
+    pub sensing: SensingParams,
+    pub marks: MarkParams,
+    pub hack: HackParams,
 }
 
 /// `[match]`: match timing (game-design §3, §14.2).
@@ -204,6 +213,142 @@ pub struct Mutators {
     pub draw_count: u32,
 }
 
+/// Per-act energy costs and mechanics (game-design §5.3, spec/mechanics.md §1-§2).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Acts {
+    pub move_energy_cost: u32,
+    pub claim_energy_cost: u32,
+    pub harvest_energy_cost: u32,
+    pub attack_energy_cost: u32,
+    pub hack_energy_cost: u32,
+    pub patch_energy_cost: u32,
+    pub build_energy_cost: u32,
+    pub spawn_energy_cost: u32,
+    pub repair_energy_cost: u32,
+    pub deposit_energy_cost: u32,
+    pub withdraw_energy_cost: u32,
+    pub attack_damage: u32,
+    pub hack_firewall_reduction: u32,
+    pub patch_firewall_restore: u32,
+    pub repair_hp_restore: u32,
+    pub harvest_yield: u32,
+}
+
+/// Drone parameters (game-design §5.2).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DroneParams {
+    pub carry_cap: u32,
+}
+
+/// Economy parameters (spec/mechanics.md §3).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Economy {
+    pub well_yield_per_tick: u32,
+    pub drone_upkeep_per_tick: u32,
+}
+
+/// Common structure parameters.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StructureStats {
+    pub build_cost: u32,
+    pub hp: u32,
+    pub firewall: u32,
+    pub effect_radius: u32,
+}
+
+/// Structure-specific fields for Battery.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BatteryStats {
+    pub build_cost: u32,
+    pub hp: u32,
+    pub firewall: u32,
+    pub effect_radius: u32,
+    pub capacity: u32,
+}
+
+/// Structure-specific fields for Sentinel.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SentinelStats {
+    pub build_cost: u32,
+    pub hp: u32,
+    pub firewall: u32,
+    pub effect_radius: u32,
+    pub fuel_per_tick: u32,
+}
+
+/// Structure-specific fields for Firewall Node.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirewallNodeStats {
+    pub build_cost: u32,
+    pub hp: u32,
+    pub firewall: u32,
+    pub effect_radius: u32,
+    pub firewall_bonus: u32,
+}
+
+/// Structure build costs and stats (spec/mechanics.md §5).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Structures {
+    pub barrier: StructureStats,
+    pub relay: StructureStats,
+    pub battery: BatteryStats,
+    pub sentinel: SentinelStats,
+    pub firewall_node: FirewallNodeStats,
+    pub forge: StructureStats,
+}
+
+/// Cell parameters (spec/mechanics.md §6).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CellParams {
+    pub default_integrity: u32,
+    pub max_integrity: u32,
+    pub claimable_terrains: Vec<String>,
+    pub walkable_terrains: Vec<String>,
+}
+
+/// Relic parameters (spec/mechanics.md §8).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelicParams {
+    pub hp: u32,
+    pub hackable: bool,
+    pub repairable: bool,
+}
+
+/// Sensing parameters (spec/mechanics.md §9).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SensingParams {
+    pub default_radius: u32,
+    pub max_radius: u32,
+    pub relay_extension: u32,
+}
+
+/// Mark parameters (spec/mechanics.md §10).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MarkParams {
+    pub max_ttl: u32,
+    pub value_size_bytes: u32,
+    pub max_per_cell: u32,
+}
+
+/// Hack mechanics (spec/mechanics.md §11).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HackParams {
+    pub converted_firewall: u32,
+}
+
 /// Values derived from the ruleset for a particular board side length
 /// (game-design §4.0).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -312,6 +457,44 @@ mod tests {
         );
         assert_eq!(r.mutators.pool.len(), 10);
         assert_eq!(r.mutators.draw_count, 2);
+    }
+
+    #[test]
+    fn acts_and_mechanics_values_parsed() {
+        let r = default();
+        assert_eq!(r.acts.move_energy_cost, 0);
+        assert_eq!(r.acts.spawn_energy_cost, 20);
+        assert_eq!(r.acts.attack_damage, 3);
+        assert_eq!(r.drone.carry_cap, 20);
+        assert_eq!(r.economy.well_yield_per_tick, 2);
+        assert_eq!(r.economy.drone_upkeep_per_tick, 0);
+    }
+
+    #[test]
+    fn structures_parsed() {
+        let r = default();
+        assert_eq!(r.structures.barrier.build_cost, 8);
+        assert_eq!(r.structures.barrier.hp, 20);
+        assert_eq!(r.structures.battery.capacity, 100);
+        assert_eq!(r.structures.sentinel.fuel_per_tick, 30);
+        assert_eq!(r.structures.firewall_node.firewall_bonus, 2);
+    }
+
+    #[test]
+    fn sensing_and_marks_parsed() {
+        let r = default();
+        assert_eq!(r.sensing.default_radius, 5);
+        assert_eq!(r.sensing.max_radius, 10);
+        assert_eq!(r.sensing.relay_extension, 3);
+        assert_eq!(r.marks.max_ttl, 500);
+        assert_eq!(r.marks.value_size_bytes, 64);
+        assert_eq!(r.marks.max_per_cell, 4);
+    }
+
+    #[test]
+    fn hack_params_parsed() {
+        let r = default();
+        assert_eq!(r.hack.converted_firewall, 2);
     }
 
     #[test]
