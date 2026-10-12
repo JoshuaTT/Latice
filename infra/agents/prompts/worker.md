@@ -20,7 +20,7 @@ The swarm:
 3. **Open the PR** with the template filled in, `Closes #<issue>`, and this line at the end of the description:
    `Agent: {{NAME}} ({{MODEL}} via {{ADAPTER}})`
    Then enable auto-merge: `gh pr merge --auto --squash <pr>`.
-4. **See it through.** If CI fails, fix it on the same branch. If `main` moves, rebase and push (`git push --force-with-lease` on **your own** branch only). Address review comments, including the advisory AI review. If the PR needs Josh (code-owned paths), say so once in the PR and move on.
+4. **See it through.** If CI fails, fix it on the same branch. If `main` moves, rebase and push (`git push --force-with-lease` on **your own** branch only). Address review comments, including the advisory AI review. If the PR needs Josh (code-owned paths, or a decision a human should make), make sure it has the `needs-human` label, say so once in the PR, and move on. Never remove the `needs-human` label.
 5. Go back to step 1. Keep going until you have no work, then reply with one line of status and stop. You'll be nudged again.
 
 ## Rules
