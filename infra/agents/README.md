@@ -19,7 +19,7 @@ There's no special orchestration service. **GitHub is the coordination layer:**
                  ▲ nudge every N min (swarm.sh watch, from your machine)
 ```
 
-- **Coordinator** (one session): turns the current milestone in `AGENTS.md` §12 into small issues, assigns each to a worker with a `swarm:<name>` label, watches PRs, escalates anything that needs you, and keeps a **`Swarm status`** issue up to date. That issue is your dashboard.
+- **Coordinator** (one session): keeps a deep backlog (the current milestone fully broken into issues, the next milestone planned ahead, and at least 2 `ready` issues per worker), decides when to move to the next milestone (recorded as a `Milestone decision` comment with evidence), turns work into small issues, assigns each to a worker with a `swarm:<name>` label, watches PRs, escalates anything that needs you, and keeps a **`Swarm status`** issue up to date. That issue is your dashboard.
 - **Workers** (the rest): loop on their assigned issues: branch → implement → test → PR → auto-merge → next. They follow `AGENTS.md`.
 - **CI, rulesets, and CODEOWNERS** decide what merges. Code with green CI merges by itself; spec and other code-owned changes wait for you.
 - **Nudges** keep the loop going. Agents stop when they run out of work or finish a task. `swarm.sh watch` sends each one a short "continue" prompt on a timer. Idle sessions pause automatically (30 min) and wake on the next nudge, so a quiet swarm costs almost nothing in compute.
@@ -62,7 +62,8 @@ Other commands:
 | Command | What it does |
 |---|---|
 | `./swarm.sh status` | List swarm sessions |
-| `./swarm.sh nudge [names]` | Nudge now (all, or named agents) |
+| `./swarm.sh nudge [names]` | Nudge now (all, or named agents). Uses `prompts/nudge-<role>.md` if it exists (the coordinator has its own), else `prompts/nudge.md` |
+| `./swarm.sh tell <name> <message>` | Send one agent a one-off message, e.g. `./swarm.sh tell coordinator "Prioritize the LatticePy spec"`, or `@file` |
 | `./swarm.sh attach w2` | Talk to one agent interactively; `Ctrl-D` detaches |
 | `./swarm.sh logs w2` | Replay an agent's event history |
 | `./swarm.sh pause` / `resume` | Stop / restart compute billing (storage still bills) |
