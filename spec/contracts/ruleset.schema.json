@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lattice.game/contracts/ruleset.schema.json",
+  "title": "Lattice ruleset",
+  "description": "Schema for a ruleset file. Instances are a ruleset TOML file (spec/rulesets/*.toml) parsed to JSON: TOML tables become JSON objects, TOML keys become the property names used here, integers stay integers, and '45 s' style values are stored as integer seconds. Every game parameter lives here and is read at runtime (AGENTS.md golden rule 4). Scalar tunables are plain numbers bounded by the exploration range from game-design §14.2 where the doc gives one, otherwise default-only. Parameters that scale with board size (game-design §4.0) use the uniform representation { base, formula }: 'base' is the integer base value from the doc and 'formula' is a string over the single variable s (board side length / 64) using the operators +, -, *, /, sqrt, log2, evaluated by the engine; the formula MUST reproduce the doc's scaling (e.g. \"base * sqrt(s)\", \"base * s\", \"2 + log2(s)\"). The 'structural' table holds parameters the tuning system must never auto-promote (system-design §6.3); tunables must not appear there. 'mutators' names the §6 pool and 'mutator_draw' the per-match draw count.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Ruleset version (semantic). Every match records its ruleset version (system-design §2.4)."
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "epochs_per_match": { "type": "integer", "minimum": 3, "maximum": 6, "default": 4 },
+        "beats_per_council": { "type": "integer", "minimum": 10, "maximum": 24, "default": 16 },
+        "beat_length_seconds": { "type": "integer", "minimum": 20, "maximum": 120, "default": 45, "description": "Set by latency class (game-design §3.3)." },
+        "charge_bank_cap": { "type": "integer", "minimum": 2, "maximum": 5, "default": 3 }
+      },
+      "required": ["epochs_per_match", "beats_per_council", "beat_length_seconds", "charge_bank_cap"]
+    },
+    "muster": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opening_tokens": { "type": "integer", "minimum": 300, "maximum": 800, "default": 500 },
+        "reply_tokens": { "type": "integer", "minimum": 100, "maximum": 300, "default": 200 }
+      },
+      "required": ["opening_tokens", "reply_tokens"]
+    },
+    "bandwidth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "personal_tokens": { "type": "integer", "minimum": 400, "maximum": 1500, "default": 800 },
+        "shared_pool_tokens": { "type": "integer", "minimum": 1500, "maximum": 6000, "default": 3000 }
+      },
+      "required": ["personal_tokens", "shared_pool_tokens"]
+    },
+    "quota": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "team_complexity_nodes": { "type": "integer", "minimum": 1500, "maximum": 4000, "default": 2400 },
+        "transfer_loss_percent": { "type": "integer", "minimum": 0, "maximum": 40, "default": 20 },
+        "sim_credits": { "type": "integer", "minimum": 10, "maximum": 25, "default": 15 }
+      },
+      "required": ["team_complexity_nodes", "transfer_loss_percent", "sim_credits"]
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "side_length": { "type": "integer", "minimum": 64, "maximum": 2048, "default": 64, "description": "Bounds are the §14.2 exploration range; the doc's live range is 64–1024." },
+        "core_hp": { "type": "integer", "default": 200 },
+        "core_firewall": { "type": "integer", "default": 40 },
+        "drone_hp": { "type": "integer", "default": 10 },
+        "drone_firewall": { "type": "integer", "default": 3 }
+      },
+      "required": ["side_length", "core_hp", "core_firewall", "drone_hp", "drone_firewall"]
+    },
+    "scaling": {
+      "type": "object",
+      "description": "Board-size scaling parameters (game-design §4.0), each as { base, formula } over s = side_length / 64.",
+      "additionalProperties": false,
+      "properties": {
+        "clash_length_ticks": { "$ref": "#/$defs/scaled", "default": { "base": 2000, "formula": "base * sqrt(s)" } },
+        "clash_length_base": { "type": "integer", "minimum": 1000, "maximum": 4000, "default": 2000, "description": "Exploration range for the clash-length base (game-design §14.2 'Clash length')." },
+        "drone_cap": { "$ref": "#/$defs/scaled", "default": { "base": 60, "formula": "base * sqrt(s)" } },
+        "drone_cap_base": { "type": "integer", "minimum": 20, "maximum": 150, "default": 60 },
+        "wells": { "$ref": "#/$defs/scaled", "default": { "base": 6, "formula": "base * s" } },
+        "neutral_forges": { "$ref": "#/$defs/scaled", "default": { "base": 2, "formula": "base * s" } },
+        "relics": { "$ref": "#/$defs/scaled", "default": { "base": 2, "formula": "base + log2(s)" } },
+        "starting_energy": { "$ref": "#/$defs/scaled", "default": { "base": 400, "formula": "base * sqrt(s)" } },
+        "starting_energy_base": { "type": "integer", "minimum": 200, "maximum": 800, "default": 400 },
+        "intel_shards": { "type": "integer", "const": 5, "default": 5 },
+        "fuel_per_tick": { "type": "integer", "minimum": 300, "maximum": 3000, "default": 1000 }
+      },
+      "required": ["clash_length_ticks", "drone_cap", "wells", "neutral_forges", "relics", "starting_energy", "intel_shards", "fuel_per_tick"]
+    },
+    "score_weights": {
+      "type": "object",
+      "description": "Weights from the §13 score formula.",
+      "additionalProperties": false,
+      "properties": {
+        "owned_cells": { "type": "integer", "default": 1 },
+        "wells_held": { "type": "integer", "default": 15 },
+        "relics_held": { "type": "integer", "default": 60 },
+        "remaining_core_hp": { "type": "integer", "default": 1 },
+        "live_drones": { "type": "integer", "default": 3 }
+      },
+      "required": ["owned_cells", "wells_held", "relics_held", "remaining_core_hp", "live_drones"]
+    },
+    "structural": {
+      "type": "object",
+      "description": "Parameters the tuning system must never auto-promote (system-design §6.3). Only structural parameters belong here.",
+      "additionalProperties": false,
+      "properties": {
+        "team_size": { "type": "integer", "const": 5, "default": 5 },
+        "quorum": { "type": "integer", "minimum": 3, "maximum": 4, "default": 3, "description": "Signatures of team_size required to deploy (game-design §9.5)." },
+        "win_conditions": {
+          "type": "array",
+          "items": { "enum": ["core_destroyed", "core_captured", "score_after_final_epoch"] },
+          "minItems": 1,
+          "uniqueItems": true,
+          "default": ["core_destroyed", "core_captured", "score_after_final_epoch"]
+        }
+      },
+      "required": ["team_size", "quorum", "win_conditions"]
+    },
+    "mutators": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pool": {
+          "type": "array",
+          "items": {
+            "enum": ["Fog", "Costly Spawn", "Quiet Radio", "Small Board", "Glass Core", "Plague", "Thin Air", "Banned Call", "Drift", "Long Night"]
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "The game-design §6 mutator pool. A match draws mutator_draw of these."
+        },
+        "draw_count": { "type": "integer", "minimum": 2, "maximum": 3, "default": 2, "description": "A match draws 2–3 mutators (game-design §6)." }
+      },
+      "required": ["pool", "draw_count"]
+    }
+  },
+  "required": ["version", "match", "muster", "bandwidth", "quota", "board", "scaling", "score_weights", "structural", "mutators"],
+  "$defs": {
+    "scaled": {
+      "type": "object",
+      "description": "Uniform base+formula representation for board-scaling parameters (game-design §4.0). s = side_length / 64.",
+      "additionalProperties": false,
+      "properties": {
+        "base": { "type": "integer", "minimum": 0 },
+        "formula": { "type": "string", "enum": ["base * sqrt(s)", "base * s", "base + log2(s)"] }
+      },
+      "required": ["base", "formula"]
+    }
+  }
+}
