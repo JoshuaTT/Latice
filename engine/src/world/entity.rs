@@ -90,6 +90,62 @@ impl Entity {
         }
     }
 
+    /// Team that owns this entity.
+    pub fn team(&self) -> Team {
+        match self {
+            Entity::Drone(e) => e.team,
+            Entity::Structure(e) => e.team,
+            Entity::Core(e) => e.team,
+            Entity::Relic(_) => Team::Neutral,
+        }
+    }
+
+    /// Set team (for symmetry checking).
+    pub fn set_team(&mut self, team: Team) {
+        match self {
+            Entity::Drone(e) => e.team = team,
+            Entity::Structure(e) => e.team = team,
+            Entity::Core(e) => e.team = team,
+            Entity::Relic(_) => {}
+        }
+    }
+
+    /// Clone with a different team (for symmetry checking).
+    pub fn cloned_for_team(&self, team: Team) -> Entity {
+        match self {
+            Entity::Drone(e) => Entity::Drone(Drone {
+                team,
+                pos: e.pos,
+                hp: e.hp,
+                firewall: e.firewall,
+                energy: e.energy,
+                mem: e.mem.clone(),
+                module: e.module.clone(),
+            }),
+            Entity::Structure(e) => Entity::Structure(Structure {
+                kind: e.kind,
+                team,
+                pos: e.pos,
+                hp: e.hp,
+                firewall: e.firewall,
+                stored_energy: e.stored_energy,
+                module: e.module.clone(),
+                mem: e.mem.clone(),
+            }),
+            Entity::Core(e) => Entity::Core(Core {
+                team,
+                pos: e.pos,
+                hp: e.hp,
+                firewall: e.firewall,
+            }),
+            Entity::Relic(e) => Entity::Relic(Relic {
+                kind: e.kind,
+                pos: e.pos,
+                hp: e.hp,
+            }),
+        }
+    }
+
     /// Cells this entity occupies: one, or the 3×3 footprint for a Core.
     /// Clipped to `u16` range; callers bounds-check against the grid.
     pub fn footprint(&self) -> Vec<Pos> {
