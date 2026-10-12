@@ -99,3 +99,16 @@ pool = [
   "Long Night"
 ]                             # game-design §6
 draw_count = 2                # game-design §6 (2-3)
+
+# Mutator parameters (spec/mapgen.md §6.2)
+[mutators.params]
+fog_sense_cap = 3             # game-design §6 (Fog: sensing radius capped at 3)
+costly_spawn_multiplier = 3   # game-design §6 (Costly Spawn: spawning costs triple)
+quiet_radio_range = 3         # game-design §6 (Quiet Radio: radio range 3)
+small_board_keys = 16         # game-design §6 (Small Board: blackboard has 16 keys)
+glass_core_firewall = 15      # game-design §6 (Glass Core: Core firewall starts at 15)
+plague_hack_cost_percent = 50 # game-design §6 (Plague: hacking costs half energy)
+thin_air_fuel_percent = 50    # game-design §6 (Thin Air: fuel per tick halved)
+drift_percent = 1             # game-design §6 (Drift: 1% chance of a random direction)
+long_night_ticks = 4000       # game-design §6 (Long Night: clashes run 4,000 ticks)
+banned_call_candidates = []   # filled from the lattice API reference (#38); empty keeps Banned Call out of the draw
