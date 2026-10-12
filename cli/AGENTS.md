@@ -38,8 +38,20 @@ cargo run --release -p lattice-cli -- replay --verify tests/golden
     replay is not implemented yet. Never report success for an unverified
     fixture.
   - `--target-parity wasm` with any match: non-zero until the WASM runner exists.
-- All subcommands (`sim`, `check`, `mapgen`, `replay`) must accept their
-  documented flags and exit 0 with empty/stub behavior.
+- `check [--ruleset PATH] [--json] [--library [--quota N]] <file.py>...`
+  (logic in `src/check.rs`) runs the engine checker on each file.
+  - Text output: `path:line:col: severity code: message` per diagnostic, then
+    `path: ok (N nodes)` or `path: N errors`. `--json` prints one array of
+    `{path, ok, node_count, interface, diagnostics}` objects in argument order.
+  - `--library` treats the files as one team library: it sums `node_count`,
+    prints `library: N / LIMIT nodes`, and fails if N exceeds the ruleset's
+    `team_complexity_nodes` (or `--quota N`, which needs `--library`). Without
+    `--library` there is no quota check.
+  - Exit 0 only if every file passes and the quota holds. A missing file is an
+    error on stderr and a non-zero exit. The default ruleset path is
+    `spec/rulesets/default.toml` relative to the working directory.
+- `sim`, `mapgen` and bare `replay` accept their documented flags and exit 0
+  with stub behavior until their issues land.
 - The binary is named `lattice` (the crate provides `[[bin]] name = "lattice"`).
 
 ## What not to touch
