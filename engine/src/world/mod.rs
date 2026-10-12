@@ -59,7 +59,8 @@ impl World {
         Ok(World {
             grid: Grid::new(side),
             tick: 0,
-            epoch: 0,
+            // 1-based, as in events.schema.json and engine-api.md.
+            epoch: 1,
             entities: BTreeMap::new(),
             occupancy: BTreeMap::new(),
             next_id: 0,
