@@ -1,0 +1,5 @@
+{
+  "tool": "read_repo",
+  "status": "success",
+  "payload": { "path": "modules/scout.py", "content": "from lattice import *" }
+}

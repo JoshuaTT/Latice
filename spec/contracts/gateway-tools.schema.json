@@ -1,0 +1,1226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lattice.game/contracts/gateway-tools.schema.json",
+  "title": "Lattice Player Gateway tools",
+  "description": "Request and result envelopes for every player-facing tool of the Player Gateway (game design \u00a716, system design \u00a72.3). The gateway speaks MCP and HTTP; both transports carry exactly these JSON shapes. Costs follow \u00a716: free reads spend no charge (but count against the per-beat free-read step cap, system design \u00a710.5); actions spend 1 action charge (bank cap 3, game design \u00a73.2); run_sim additionally spends 1 sim credit; send_message spends 1 message charge plus bandwidth tokens (personal allowance first, then the shared pool, game design \u00a79.3). Every charged request (actions and send_message) MUST carry beat_id and idempotency_key; the gateway resolves a repeated idempotency key within a beat to the original result instead of charging twice. Error codes form a closed list: 'no_charge' (no action/message charge or sim credit banked), 'bad_beat' (beat_id is not the current beat), 'not_visible' (the seat may not see the requested content; visibility is enforced server-side, game design \u00a79.2), 'quota_exceeded' (complexity quota, bandwidth, or token budget exhausted), 'unknown_tool' (no such tool), 'bad_args' (arguments violate the tool's schema or game rules), 'not_found' (path, patch, player, or card does not exist), 'conflict' (ownership, patch, or manifest conflict, e.g. patching a file the seat does not own without propose_patch), 'locked' (the target is locked, e.g. manifest after lock or vetoed module), 'wrong_phase' (tool not available in the current match phase, e.g. writes during Muster).",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/result"
+    }
+  ],
+  "$defs": {
+    "tool_name": {
+      "type": "string",
+      "enum": [
+        "help",
+        "read_repo",
+        "read_channel",
+        "read_telemetry",
+        "read_map",
+        "write_file",
+        "propose_patch",
+        "accept_patch",
+        "reject_patch",
+        "run_sim",
+        "sign_manifest",
+        "transfer_quota",
+        "play_card",
+        "send_message",
+        "pass"
+      ]
+    },
+    "beat_id": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The beat the action is submitted for (game design \u00a73.1). Must equal the gateway's current beat or the request fails with 'bad_beat'."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Caller-chosen key; a retry of the same key within the same beat returns the original result without spending another charge (system design \u00a72.3)."
+    },
+    "charge_meta": {
+      "type": "object",
+      "description": "Cost metadata the gateway attaches to results so seats can see what a call spent.",
+      "properties": {
+        "charge": {
+          "enum": [
+            "none",
+            "action",
+            "message"
+          ],
+          "description": "Which charge kind the tool spends: 'none' for free reads and pass, 'action' for major actions, 'message' for send_message."
+        },
+        "sim_credit": {
+          "type": "boolean",
+          "description": "True only for run_sim, which spends a sim credit in addition to an action charge (game design \u00a716)."
+        },
+        "bandwidth_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bandwidth tokens metered for the call, measured with the canonical tokenizer (system design \u00a710.2). Applies to send_message and to non-code repo writes (game design \u00a79.3)."
+        }
+      },
+      "required": [
+        "charge"
+      ]
+    },
+    "page_request": {
+      "type": "object",
+      "description": "Pagination for list-returning tools. page and page_size are 1-indexed and server-capped.",
+      "properties": {
+        "page": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
+      }
+    },
+    "page_info": {
+      "type": "object",
+      "description": "Server-reported pagination state on list results.",
+      "properties": {
+        "page": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "total_items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "has_more": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "page",
+        "page_size",
+        "total_items",
+        "has_more"
+      ]
+    },
+    "digest": {
+      "type": "boolean",
+      "description": "When true the gateway returns a summary (top-N / hotspot) form instead of full data (game design \u00a73.4)."
+    },
+    "region": {
+      "type": "object",
+      "description": "Axis-aligned rectangular map region in cells.",
+      "properties": {
+        "x0": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "y0": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "x1": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "y1": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "x0",
+        "y0",
+        "x1",
+        "y1"
+      ]
+    },
+    "request": {
+      "type": "object",
+      "description": "A tool call from a seat. Free reads need no envelope fields; every charged tool requires beat_id and idempotency_key.",
+      "not": {
+        "required": [
+          "ok"
+        ]
+      },
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/tool_name"
+        },
+        "beat_id": {
+          "$ref": "#/$defs/beat_id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/idempotency_key"
+        },
+        "args": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "tool"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "enum": [
+                  "write_file",
+                  "propose_patch",
+                  "accept_patch",
+                  "reject_patch",
+                  "run_sim",
+                  "sign_manifest",
+                  "transfer_quota",
+                  "play_card",
+                  "send_message"
+                ]
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "required": [
+              "beat_id",
+              "idempotency_key"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "help"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "topic": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "topic"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "read_repo"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "digest": {
+                    "$ref": "#/$defs/digest"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "read_channel"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "digest": {
+                    "$ref": "#/$defs/digest"
+                  },
+                  "page": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "page_size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "read_telemetry"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "digest": {
+                    "$ref": "#/$defs/digest"
+                  },
+                  "page": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "page_size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "read_map"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "region": {
+                    "$ref": "#/$defs/region"
+                  },
+                  "digest": {
+                    "$ref": "#/$defs/digest"
+                  }
+                },
+                "required": [
+                  "region"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "write_file"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "content": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "content"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "propose_patch"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "patch": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "comment": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path",
+                  "patch"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "enum": [
+                  "accept_patch",
+                  "reject_patch"
+                ]
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "patch_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "patch_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "run_sim"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "manifest": {
+                    "type": "object",
+                    "description": "Candidate manifest per game design \u00a79.5.",
+                    "properties": {
+                      "library": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "spawn": {
+                        "type": "array"
+                      },
+                      "board": {
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "library"
+                    ]
+                  },
+                  "opponent": {
+                    "enum": [
+                      "house_bot",
+                      "ghost"
+                    ],
+                    "description": "Sim opponent (game design \u00a79.6): a house bot, or the ghost built from enemy modules the seat personally obtained."
+                  }
+                },
+                "required": [
+                  "manifest",
+                  "opponent"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "sign_manifest"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "hash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$",
+                    "description": "Content hash of the exact manifest version being signed (game design \u00a79.5)."
+                  }
+                },
+                "required": [
+                  "hash"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "transfer_quota"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "player": {
+                    "type": "string",
+                    "pattern": "^P[0-9]+$",
+                    "description": "Destination seat identifier."
+                  },
+                  "amount": {
+                    "type": "integer",
+                    "multipleOf": 50,
+                    "exclusiveMinimum": 0,
+                    "description": "Quota nodes transferred, in chunks of 50; 20% is lost in transit (game design \u00a79.4)."
+                  }
+                },
+                "required": [
+                  "player",
+                  "amount"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "play_card"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "card": {
+                    "enum": [
+                      "Veto",
+                      "Courier",
+                      "Long Sight",
+                      "Forge Key",
+                      "Double Seal",
+                      "Overclock",
+                      "Reserve",
+                      "Insight",
+                      "Namespace",
+                      "Eavesdrop"
+                    ],
+                    "description": "Privilege cards from game design \u00a77."
+                  },
+                  "args": {
+                    "type": "object",
+                    "description": "Card-specific arguments (e.g. the module name for Veto, the spawn for Forge Key). Empty object for cards needing none."
+                  }
+                },
+                "required": [
+                  "card"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "send_message"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "tool": {
+                "const": "pass"
+              }
+            },
+            "required": [
+              "tool"
+            ]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "description": "Common result envelope: exactly one of ok/error, plus tool-specific payload under 'result' when ok.",
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/tool_name"
+        },
+        "beat_id": {
+          "$ref": "#/$defs/beat_id"
+        },
+        "idempotency_key": {
+          "$ref": "#/$defs/idempotency_key"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "result": {
+          "type": "object"
+        },
+        "meta": {
+          "$ref": "#/$defs/charge_meta"
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "enum": [
+                "no_charge",
+                "bad_beat",
+                "not_visible",
+                "quota_exceeded",
+                "unknown_tool",
+                "bad_args",
+                "not_found",
+                "conflict",
+                "locked",
+                "wrong_phase"
+              ]
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "tool",
+        "ok"
+      ],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "ok": {
+              "const": true
+            }
+          },
+          "anyOf": [
+            {
+              "properties": {
+                "tool": {
+                  "const": "help"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "topic": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "topic",
+                    "text"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "read_repo"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "$ref": "#/$defs/digest"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "owner": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "content",
+                    "revision"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "read_channel"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "seq": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "sender": {
+                            "type": "string"
+                          },
+                          "beat_id": {
+                            "$ref": "#/$defs/beat_id"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "tokens": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "seq",
+                          "sender",
+                          "beat_id",
+                          "text"
+                        ]
+                      }
+                    },
+                    "digest_text": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "$ref": "#/$defs/page_info"
+                    }
+                  },
+                  "required": [
+                    "page"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "read_telemetry"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "epoch": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "traces": {
+                      "type": "array"
+                    },
+                    "digest_text": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "$ref": "#/$defs/page_info"
+                    }
+                  },
+                  "required": [
+                    "epoch",
+                    "page"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "read_map"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "region": {
+                      "$ref": "#/$defs/region"
+                    },
+                    "cells": {
+                      "type": "array"
+                    },
+                    "digest_text": {
+                      "type": "string"
+                    },
+                    "digest": {
+                      "$ref": "#/$defs/digest"
+                    }
+                  },
+                  "required": [
+                    "region"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "write_file"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "revision"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "propose_patch"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "patch_id": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "patch_id",
+                    "path"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "enum": [
+                    "accept_patch",
+                    "reject_patch"
+                  ]
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "patch_id": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "patch_id",
+                    "applied"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "run_sim"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "sim_id": {
+                      "type": "string"
+                    },
+                    "ticks": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "score": {
+                      "type": "object"
+                    },
+                    "summary": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "sim_id",
+                    "ticks"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "sign_manifest"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "hash": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "signatures": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5
+                    },
+                    "quorum": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "hash",
+                    "signatures",
+                    "quorum"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "transfer_quota"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "player": {
+                      "type": "string"
+                    },
+                    "sent": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    },
+                    "received": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0
+                    }
+                  },
+                  "required": [
+                    "player",
+                    "sent",
+                    "received"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "play_card"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "card": {
+                      "type": "string"
+                    },
+                    "effect": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "card"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "send_message"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "seq": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "seq"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            },
+            {
+              "properties": {
+                "tool": {
+                  "const": "pass"
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "passed": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "passed"
+                  ]
+                }
+              },
+              "required": [
+                "tool",
+                "result"
+              ]
+            }
+          ],
+          "required": [
+            "ok",
+            "result"
+          ]
+        },
+        {
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "enum": [
+                    "no_charge",
+                    "bad_beat",
+                    "not_visible",
+                    "quota_exceeded",
+                    "unknown_tool",
+                    "bad_args",
+                    "not_found",
+                    "conflict",
+                    "locked",
+                    "wrong_phase"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "ok",
+            "error"
+          ]
+        }
+      ]
+    }
+  }
+}

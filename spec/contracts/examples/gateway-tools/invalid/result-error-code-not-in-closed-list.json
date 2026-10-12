@@ -1,0 +1,7 @@
+{
+  "tool": "run_sim",
+  "beat_id": 9,
+  "idempotency_key": "sim-9-x",
+  "ok": false,
+  "error": { "code": "sim_unlucky", "message": "the sim failed mysteriously" }
+}

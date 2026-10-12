@@ -1,0 +1,10 @@
+{
+  "tool": "read_map",
+  "ok": true,
+  "result": {
+    "region": { "x0": 0, "y0": 0, "x1": 12, "y1": 12 },
+    "digest": true,
+    "digest_text": "Hotspot: contested Well at (6,6); enemy claim pressure north-west; 2 neutral Forges idle."
+  },
+  "meta": { "charge": "none" }
+}

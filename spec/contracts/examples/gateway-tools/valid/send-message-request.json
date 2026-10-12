@@ -1,0 +1,8 @@
+{
+  "tool": "send_message",
+  "beat_id": 3,
+  "idempotency_key": "msg-3-alpha",
+  "args": {
+    "text": "I hold the east shard; claim warden and I will feed you threat keys."
+  }
+}
