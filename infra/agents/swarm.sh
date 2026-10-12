@@ -175,12 +175,28 @@ render_prompt() {
       "$file" | while IFS= read -r l || [[ -n "$l" ]]; do
         if [[ "$l" == "{{ROSTER}}" ]]; then printf '%s\n' "$roster_text"; else printf '%s\n' "$l"; fi
       done
+  if [[ "$adapter" == "local" ]]; then
+    cat <<'EOF'
+
+## Local workspace notes (you run on Josh's laptop, in a sandbox)
+
+- Your current directory is already a clone of `JoshuaTT/Latice`, made for you outside the sandbox, with your git identity and push credentials configured. **Skip the clone and git-identity setup steps.** Start with `git fetch origin && git checkout main && git pull`.
+- The sandbox never lets you write `.git/config` or `.git/hooks`, so avoid commands that change git config: no `git config`, `git remote add`, `git push -u`, or `git branch --set-upstream-to`. Push with `git push origin HEAD` (pushes your current branch to the same name).
+- `gh` is already authenticated as the swarm's GitHub identity. Run `gh` commands from the repo root as plain commands (`gh pr create ...`, `gh issue list ...`), not after `cd` or inside `$(...)`, so they run where they work.
+- Commands that reference environment variables (`$GITHUB_TOKEN` etc.) are refused automatically; you never need them, because git and gh already have credentials.
+EOF
+  fi
 }
 
 # ---------- local agents (Claude Code on this machine) ----------
 
 ws_dir() { echo "$LOCAL_HOME/$1"; }
-local_settings_file() { echo "$STATE_DIR/local-claude-settings.json"; }
+# The agent's clone of the repo; Claude Code runs with this as its working
+# directory, so gh/git commands don't need a `cd` (a `cd` keeps a call inside
+# the sandbox even when the command is excluded from it).
+repo_dir() { echo "$(ws_dir "$1")/Latice"; }
+gh_config_dir() { echo "$(ws_dir "$1")/.gh-config"; }
+local_settings_file() { echo "$STATE_DIR/local-claude-settings-$1.json"; }
 local_exists() { [[ -f "$(ws_dir "$1")/.lattice-agent" ]]; }
 session_id_file() { echo "$(ws_dir "$1")/.lattice-session-id"; }
 
@@ -203,8 +219,12 @@ local_session_id() {
   if [[ -s "$f" ]]; then cat "$f"; return 0; fi
   ws="$(ws_dir "$name")"
   local matches=() m
-  while IFS= read -r m; do [[ -n "$m" ]] && matches+=("$m"); done < <(
-    grep -lF "\"cwd\":\"$ws\"" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null || true)
+  local dir
+  for dir in "$(repo_dir "$name")" "$ws"; do
+    while IFS= read -r m; do [[ -n "$m" ]] && matches+=("$m"); done < <(
+      grep -lF "\"cwd\":\"$dir\"" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null || true)
+    [[ ${#matches[@]} -gt 0 ]] && break
+  done
   [[ ${#matches[@]} -gt 0 ]] || return 1
   t="$(ls -t "${matches[@]}" | head -1)"
   [[ "$t" == *.jsonl ]] || return 1
@@ -219,9 +239,10 @@ local_session_id() {
 # cloud credentials, gh/doctl config, or this folder's .env. Permission prompts
 # are refused (nobody is there to answer them), and the same never-do-this
 # rules as the DigitalOcean specs apply.
-write_local_settings() {
+write_local_settings() {  # write_local_settings <name>
+  local name="$1"
   mkdir -p "$STATE_DIR"
-  cat >"$(local_settings_file)" <<EOF
+  cat >"$(local_settings_file "$name")" <<EOF
 {
   "permissions": {
     "allow": ["Bash(gh *)"],
@@ -248,7 +269,7 @@ write_local_settings() {
     "autoAllowBashIfSandboxed": true,
     "excludedCommands": ["gh *"],
     "filesystem": {
-      "allowWrite": ["~/.cargo", "~/.rustup", "~/.cache", "~/.npm", "~/.local", "~/Library/Caches"],
+      "allowWrite": ["~/.cargo", "~/.rustup", "~/.cache", "~/.npm", "~/.local", "~/Library/Caches", "$(gh_config_dir "$name")"],
       "denyRead": [
         "~/.ssh", "~/.aws", "~/.gnupg", "~/.netrc", "~/.docker",
         "~/.config/gh", "~/.config/doctl", "~/Library/Application Support/doctl",
@@ -284,11 +305,15 @@ build_local_cmd() {
              -u ANTHROPIC_MODEL -u HARNESS_INFERENCE_API_KEY
              "GITHUB_TOKEN=$GITHUB_TOKEN" "GH_TOKEN=$GITHUB_TOKEN"
              "LATTICE_AGENT_NAME=$name" "LATTICE_AGENT_ROLE=$role"
-             "LATTICE_AGENT_MODEL=$model" "LATTICE_AGENT_ADAPTER=local")
+             "LATTICE_AGENT_MODEL=$model" "LATTICE_AGENT_ADAPTER=local"
+             "GH_CONFIG_DIR=$(gh_config_dir "$name")" "GH_PROMPT_DISABLED=1"
+             "GIT_TERMINAL_PROMPT=0"
+             "GIT_AUTHOR_NAME=lattice-$name" "GIT_AUTHOR_EMAIL=lattice-$name@users.noreply.github.com"
+             "GIT_COMMITTER_NAME=lattice-$name" "GIT_COMMITTER_EMAIL=lattice-$name@users.noreply.github.com")
   if [[ -n "${LOCAL_ANTHROPIC_API_KEY:-}" ]]; then
     local_cmd+=("ANTHROPIC_API_KEY=$LOCAL_ANTHROPIC_API_KEY")
   fi
-  local_cmd+=(claude --model "$model" --settings "$(local_settings_file)"
+  local_cmd+=(claude --model "$model" --settings "$(local_settings_file "$name")"
               --strict-mcp-config --permission-mode acceptEdits)
 }
 
@@ -298,7 +323,38 @@ init_local() {
   mkdir -p "$ws"
   printf 'LATTICE local agent workspace for %s\n' "$name" >"$ws/.lattice-agent"
   new_uuid >"$(session_id_file "$name")"
-  write_local_settings
+  write_local_settings "$name"
+  ensure_local_clone "$name"
+}
+
+# git credential helper for local agents: hands git the agent's token from
+# the environment at run time, so the token is never written to disk.
+# shellcheck disable=SC2016  # expanded by git's shell, not here
+LOCAL_GIT_HELPER='!f() { test "$1" = get || exit 0; echo username=x-access-token; echo "password=$GITHUB_TOKEN"; }; f'
+
+# ensure_local_clone <name>: clone the repo into the agent's workspace and set
+# its git config. Runs here, outside the sandbox, because the sandbox never
+# lets the agent write .git/config or .git/hooks (so it can't clone itself).
+ensure_local_clone() {
+  local name="$1" repo
+  repo="$(repo_dir "$name")"
+  mkdir -p "$(gh_config_dir "$name")"
+  if [[ ! -d "$repo/.git" ]]; then
+    info "cloning $REPO into $repo (outside the sandbox)"
+    GITHUB_TOKEN="$GITHUB_TOKEN" GIT_TERMINAL_PROMPT=0 \
+      git -c credential.helper= -c credential.helper="$LOCAL_GIT_HELPER" \
+        clone --quiet "${LATTICE_CLONE_URL:-https://github.com/$REPO.git}" "$repo" \
+      || die "couldn't clone $REPO into $repo"
+  fi
+  # Use only our helper: the empty entry resets helpers inherited from your
+  # global git config (e.g. the macOS keychain), so agents never use your login.
+  git -C "$repo" config --unset-all credential.helper 2>/dev/null || true
+  git -C "$repo" config --add credential.helper ""
+  git -C "$repo" config --add credential.helper "$LOCAL_GIT_HELPER"
+  git -C "$repo" config user.name "lattice-$name"
+  git -C "$repo" config user.email "lattice-$name@users.noreply.github.com"
+  git -C "$repo" config push.default current
+  git -C "$repo" config remote.origin.url "https://github.com/$REPO.git"
 }
 
 # ---------- background prompt runs ----------
@@ -338,7 +394,8 @@ send_prompt() {
   } >>"$log"
 
   if is_local "$name"; then
-    write_local_settings
+    write_local_settings "$name"
+    ensure_local_clone "$name" >/dev/null
     build_local_cmd "$name"
     local_cmd+=(-p --permission-prompts none --output-format text)
     local sid
@@ -353,7 +410,7 @@ send_prompt() {
     # caffeinate (macOS) keeps the laptop from idle-sleeping mid-run.
     local wrap=(); command -v caffeinate >/dev/null && wrap=(caffeinate -i)
     (
-      cd "$(ws_dir "$name")" || exit 1
+      cd "$(repo_dir "$name")" || exit 1
       nohup ${wrap[@]+"${wrap[@]}"} "${local_cmd[@]}" <"$file" >>"$log" 2>&1 &
       echo $! >"$(pid_file "$name")"
     )
@@ -407,9 +464,9 @@ check_local() {
   if [[ "$(uname -s)" == "Linux" ]] && ! command -v bwrap >/dev/null; then
     warn "the Claude Code sandbox needs bubblewrap on Linux (install bwrap)"; fail=1
   fi
-  write_local_settings
   for name in $(roster | awk '$3 == "local" {print $1}'); do
     model="$(agent_field "$name" 4)"
+    write_local_settings "$name"
     build_local_cmd "$name"
     # One tool-free turn: proves auth, model access, the sandbox, and flags.
     # The prompt goes on stdin, like real runs: --tools takes multiple values
@@ -540,10 +597,10 @@ cmd_models() {
 cmd_render() {
   [[ $# -eq 1 ]] || die "usage: swarm.sh render <name>"
   if is_local "$1"; then
-    write_local_settings
-    echo "# $1 runs locally: Claude Code (model $(agent_field "$1" 4)) in $(ws_dir "$1")"
-    echo "# with these settings ($(local_settings_file)):"
-    cat "$(local_settings_file)"
+    write_local_settings "$1"
+    echo "# $1 runs locally: Claude Code (model $(agent_field "$1" 4)) in $(repo_dir "$1")"
+    echo "# with these settings ($(local_settings_file "$1")):"
+    cat "$(local_settings_file "$1")"
   else
     render_spec "$1"
   fi
@@ -728,12 +785,13 @@ cmd_attach() {
     need_claude; need_creds
     local_exists "$name" || die "$name hasn't been started (./swarm.sh up $name)"
     is_busy "$name" && die "$name is mid-run; wait for it to finish (or ./swarm.sh pause $name) before attaching"
-    write_local_settings
+    write_local_settings "$name"
     build_local_cmd "$name"
     local sid
     sid="$(local_session_id "$name")" \
       || die "no conversation recorded for $name yet (it starts on its first run; check ./swarm.sh logs $name)"
-    cd "$(ws_dir "$name")"
+    ensure_local_clone "$name" >/dev/null
+    cd "$(repo_dir "$name")"
     exec "${local_cmd[@]}" --resume "$sid"
   else
     need_doctl

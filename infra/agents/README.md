@@ -85,7 +85,9 @@ The model column takes a Claude Code model alias (`opus`, `sonnet`, `haiku`) or 
 **Setup:** install Claude Code and sign in (`claude auth login`). To bill an Anthropic Console API key instead of your login, set `LOCAL_ANTHROPIC_API_KEY` in `.env`; `LOCAL_MAX_BUDGET_USD` caps each run's spend. `./swarm.sh check` makes one tiny tool-free call per local agent to confirm sign-in, model access, and the sandbox.
 
 **How it runs:**
-- Each local agent gets its own workspace in `~/lattice-swarm/<name>` (change with `LATTICE_LOCAL_HOME`) and clones the repo there, exactly like a DigitalOcean agent.
+- Each local agent gets its own workspace in `~/lattice-swarm/<name>` (change with `LATTICE_LOCAL_HOME`). The script clones the repo into `~/lattice-swarm/<name>/Latice` itself, outside the sandbox, because the sandbox never lets a command write `.git/config` or `.git/hooks`, so an agent can't clone on its own. Claude Code runs with the clone as its working directory.
+- Git pushes authenticate through a credential helper that reads the agent's token from its environment at run time, so the token is never written to disk; your global helpers (such as the macOS keychain) are switched off for these clones. `gh` uses the same token and its own config folder (`~/lattice-swarm/<name>/.gh-config`), never your `~/.config/gh`.
+- Local agents get extra notes in their role prompt: skip the clone steps, avoid commands that write git config (`git push -u`, `git config`), and push with `git push origin HEAD`.
 - Runs use `claude -p`; nudges use `--continue`, so the agent keeps its conversation across nudges. `attach` opens that same conversation interactively.
 - Its environment is scrubbed: the DigitalOcean key is removed, and `gh`/`git` act as the agent's GitHub token, not your own `gh` login.
 - `caffeinate` keeps the Mac awake while a run is in progress. If the laptop is closed or shut down, the run stops and the next nudge continues it.
