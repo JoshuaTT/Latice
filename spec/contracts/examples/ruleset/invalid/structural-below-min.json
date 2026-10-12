@@ -1,0 +1,52 @@
+{
+  "version": "1.0.0",
+  "match": {
+    "epochs_per_match": 4,
+    "beats_per_council": 16,
+    "beat_length_seconds": 45,
+    "charge_bank_cap": 3
+  },
+  "muster": { "opening_tokens": 500, "reply_tokens": 200 },
+  "bandwidth": { "personal_tokens": 800, "shared_pool_tokens": 3000 },
+  "quota": {
+    "team_complexity_nodes": 2400,
+    "transfer_loss_percent": 20,
+    "sim_credits": 15
+  },
+  "board": {
+    "side_length": 64,
+    "core_hp": 200,
+    "core_firewall": 40,
+    "drone_hp": 10,
+    "drone_firewall": 3
+  },
+  "scaling": {
+    "clash_length_ticks": { "base": 2000, "formula": "base * sqrt(s)" },
+    "clash_length_base": 2000,
+    "drone_cap": { "base": 60, "formula": "base * sqrt(s)" },
+    "drone_cap_base": 60,
+    "wells": { "base": 6, "formula": "base * s" },
+    "neutral_forges": { "base": 2, "formula": "base * s" },
+    "relics": { "base": 2, "formula": "base + log2(s)" },
+    "starting_energy": { "base": 400, "formula": "base * sqrt(s)" },
+    "starting_energy_base": 400,
+    "intel_shards": 5,
+    "fuel_per_tick": 1000
+  },
+  "score_weights": {
+    "owned_cells": 1,
+    "wells_held": 15,
+    "relics_held": 60,
+    "remaining_core_hp": 1,
+    "live_drones": 3
+  },
+  "structural": {
+    "team_size": 5,
+    "quorum": 2,
+    "win_conditions": ["core_destroyed", "core_captured", "score_after_final_epoch"]
+  },
+  "mutators": {
+    "pool": ["Fog"],
+    "draw_count": 2
+  }
+}
