@@ -338,7 +338,10 @@ proptest! {
     }
 }
 
+// The wall clock is banned in game logic (AGENTS.md §8); this test only measures
+// the checker's 50 ms budget (system-design §2.1) and never feeds a simulation.
 #[test]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
 fn four_thousand_node_module_checks_quickly() {
     let body = "    me.f(1)\n".repeat(MAX_CODE_NODES / 5 - 10);
     let src = format!("{WRAP}def tick(me):\n{body}");
