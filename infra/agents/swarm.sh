@@ -180,6 +180,36 @@ render_prompt() {
 ws_dir() { echo "$LOCAL_HOME/$1"; }
 local_settings_file() { echo "$STATE_DIR/local-claude-settings.json"; }
 local_exists() { [[ -f "$(ws_dir "$1")/.lattice-agent" ]]; }
+session_id_file() { echo "$(ws_dir "$1")/.lattice-session-id"; }
+
+new_uuid() {
+  if command -v uuidgen >/dev/null; then uuidgen | tr '[:upper:]' '[:lower:]'
+  else python3 -c 'import uuid; print(uuid.uuid4())'; fi
+}
+
+# Claude Code session ID for a local agent. Each agent's conversation is
+# pinned to an ID (--session-id on the first run, --resume afterwards), so
+# nudges and `attach` always reach the same conversation. (Interactive
+# `claude --continue` skips conversations started with `claude -p`, so it
+# can't be used for attach.)
+#
+# Workspaces started before IDs were tracked: find the newest Claude Code
+# transcript recorded for this workspace and adopt its ID.
+local_session_id() {
+  local name="$1" f ws t id
+  f="$(session_id_file "$name")"
+  if [[ -s "$f" ]]; then cat "$f"; return 0; fi
+  ws="$(ws_dir "$name")"
+  local matches=() m
+  while IFS= read -r m; do [[ -n "$m" ]] && matches+=("$m"); done < <(
+    grep -lF "\"cwd\":\"$ws\"" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/*.jsonl 2>/dev/null || true)
+  [[ ${#matches[@]} -gt 0 ]] || return 1
+  t="$(ls -t "${matches[@]}" | head -1)"
+  [[ "$t" == *.jsonl ]] || return 1
+  id="$(basename "$t" .jsonl)"
+  echo "$id" >"$f"
+  echo "$id"
+}
 
 # Claude Code settings for local agents. The agent's shell commands run in
 # Claude Code's OS-level sandbox: writes only to its workspace (plus tool
@@ -198,8 +228,12 @@ write_local_settings() {
       "Bash(git push -f *)",
       "Bash(git push origin main)",
       "Bash(git push origin main *)",
-      "Bash(gh pr merge --admin *)",
-      "Bash(gh pr merge * --admin*)",
+      "Bash(gh pr merge --admin*)",
+      "Bash(gh pr merge *--admin*)",
+      "Bash(gh api *merge*)",
+      "Bash(curl *merge*)",
+      "Bash(gh api *rulesets*)",
+      "Bash(gh api *branches/*/protection*)",
       "Bash(gh repo delete *)",
       "Bash(rm -rf /*)",
       "Bash(rm -rf ~*)"
@@ -261,6 +295,7 @@ init_local() {
   ws="$(ws_dir "$name")"
   mkdir -p "$ws"
   printf 'LATTICE local agent workspace for %s\n' "$name" >"$ws/.lattice-agent"
+  new_uuid >"$(session_id_file "$name")"
   write_local_settings
 }
 
@@ -304,7 +339,14 @@ send_prompt() {
     write_local_settings
     build_local_cmd "$name"
     local_cmd+=(-p --permission-prompts none --output-format text)
-    [[ -n "$first" ]] || local_cmd+=(--continue)
+    local sid
+    if [[ -n "$first" ]]; then
+      local_cmd+=(--session-id "$(cat "$(session_id_file "$name")")")
+    elif sid="$(local_session_id "$name")"; then
+      local_cmd+=(--resume "$sid")
+    else
+      local_cmd+=(--continue)   # last resort: most recent conversation in the workspace
+    fi
     if [[ -n "${LOCAL_MAX_BUDGET_USD:-}" ]]; then local_cmd+=(--max-budget-usd "$LOCAL_MAX_BUDGET_USD"); fi
     # caffeinate (macOS) keeps the laptop from idle-sleeping mid-run.
     local wrap=(); command -v caffeinate >/dev/null && wrap=(caffeinate -i)
@@ -563,6 +605,18 @@ cmd_status() {
     fi
     printf '  %-12s %-13s %-28s %s\n' "$name" "$where" "$(agent_field "$name" 4)" "$state"
   done
+  # DigitalOcean sessions named like swarm agents that the roster no longer
+  # runs there (e.g. an agent moved to "local") keep running and billing.
+  if command -v doctl >/dev/null; then
+    local n agent
+    for n in $(doctl harness-runtime list --format Name --no-header 2>/dev/null | grep "^$PREFIX" || true); do
+      agent="${n#"$PREFIX"}"
+      if ! roster | awk -v a="$agent" '$1 == a' | grep -q . || is_local "$agent"; then
+        warn "$n is still on DigitalOcean, but swarm.conf doesn't run $agent there."
+        warn "    Remove it with: doctl harness-runtime remove $n"
+      fi
+    done
+  fi
 }
 
 cmd_nudge() {
@@ -630,8 +684,11 @@ cmd_attach() {
     is_busy "$name" && die "$name is mid-run; wait for it to finish (or ./swarm.sh pause $name) before attaching"
     write_local_settings
     build_local_cmd "$name"
+    local sid
+    sid="$(local_session_id "$name")" \
+      || die "no conversation recorded for $name yet (it starts on its first run; check ./swarm.sh logs $name)"
     cd "$(ws_dir "$name")"
-    exec "${local_cmd[@]}" --continue
+    exec "${local_cmd[@]}" --resume "$sid"
   else
     need_doctl
     doctl harness-runtime launch "$(session "$name")"
