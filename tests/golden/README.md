@@ -133,7 +133,7 @@ Muster, Deploy, Clash, Debrief, and Retro phases have no player inputs.
 {
   "match_id": "clash-1024-v1",
   "hash_function": "SHA-256",
-  "serialization_contract": "TBD-M1",
+  "serialization_contract": "spec/contracts/state-hash.md#v1",
   "snapshots": [
     {
       "tick": 0,                       // initial state before tick 0 resolves
@@ -154,11 +154,10 @@ Muster, Deploy, Clash, Debrief, and Retro phases have no player inputs.
 
 ### Hash calculation
 
-The hash is SHA-256 computed over a canonical serialized world state. The
-serialization itself is engine work (M1). For M0, the `serialization_contract`
-field is `"TBD-M1"` — it will be replaced with a concrete contract ID (e.g.
-`"spec/contracts/world-serialization.json"`) when the serialization format is
-finalized.
+The hash is SHA-256 computed over a canonical serialized world state. The byte
+format is defined in [`spec/contracts/state-hash.md`](../../spec/contracts/state-hash.md);
+`serialization_contract` names the format version a fixture was produced with
+(currently `"spec/contracts/state-hash.md#v1"`).
 
 The serialization must be deterministic — the same world state always produces
 the same byte sequence, and therefore the same hash, on every platform and
