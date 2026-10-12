@@ -1,0 +1,8 @@
+{
+  "library": ["scout"],
+  "spawn": [
+    {
+      "module": "scout"
+    }
+  ]
+}

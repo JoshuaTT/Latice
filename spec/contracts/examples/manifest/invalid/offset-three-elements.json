@@ -1,0 +1,10 @@
+{
+  "library": ["scout"],
+  "spawn": [
+    {
+      "module": "scout",
+      "forge": "F_home",
+      "offset": [1, 2, 3]
+    }
+  ]
+}

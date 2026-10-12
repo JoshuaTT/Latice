@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lattice.example.com/contracts/manifest.schema.json",
+  "title": "Manifest Schema",
+  "description": "JSON Schema for a team's manifest.toml, the deployment plan signed by quorum each epoch. This schema validates the manifest after parsing TOML to JSON. Runtime checks not expressible in JSON Schema (documented below) are performed by the Manifest service.\n\nSignatures, quorum state, and lock status are NOT part of the manifest file (any edit clears signatures).\n\nCanonical form for hashing: Parse the manifest.toml to JSON using a deterministic TOML parser → Apply RFC 8785 JSON Canonicalization (https://www.rfc-editor.org/rfc/rfc8785) → Compute SHA-256 hash, hex-encoded. The gateway's sign_manifest tool and orchestrator must compute identical hashes.\n\nRuntime checks (not enforced by this schema):\n- library array max length: ruleset parameter (complexity quota)\n- spawn entries must have module present in library (cross-field validation)\n- spawn.forge must reference an owned Forge ID\n- spawn.offset must be within Forge radius (default 3, from ruleset)\n- board.init key count: 64 keys (or 16 under Small Board mutator)\n- board.init values: size limits from ruleset\n- board.reserved keys must be unique\n- board.init keys may not overlap with board.reserved",
+  "type": "object",
+  "properties": {
+    "library": {
+      "type": "array",
+      "description": "Array of module names available in this deployment. Module name = file stem under modules/, e.g. 'scout', 'warden', 'harvester'.",
+      "items": {
+        "type": "string",
+        "description": "Module name (file stem without extension)",
+        "pattern": "^[a-z_][a-z0-9_]*$",
+        "examples": ["scout", "warden", "harvester", "expansion_lead"]
+      },
+      "uniqueItems": true,
+      "minItems": 0
+    },
+    "spawn": {
+      "type": "array",
+      "description": "Array of spawn specifications for drones to deploy",
+      "items": {
+        "type": "object",
+        "description": "Spawn specification for a single drone",
+        "required": ["module", "forge"],
+        "properties": {
+          "module": {
+            "type": "string",
+            "description": "Module name from the library to spawn"
+          },
+          "forge": {
+            "type": "string",
+            "description": "Forge ID to spawn near (must be an owned Forge)"
+          },
+          "offset": {
+            "type": "array",
+            "description": "Offset from Forge position [dx, dy], must be within Forge radius",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "args": {
+            "type": "object",
+            "description": "Arguments passed to the module's init function (JSON-compatible values)",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "board": {
+      "type": "object",
+      "description": "Team blackboard configuration",
+      "properties": {
+        "init": {
+          "type": "object",
+          "description": "Initial blackboard values set at epoch start. Runtime: max 64 keys (or 16 under Small Board mutator), values must fit size limits.",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean", "array", "object", "null"],
+            "description": "Small JSON value"
+          }
+        },
+        "reserved": {
+          "type": "array",
+          "description": "Reserved blackboard keys (cannot be written by other teams' modules)",
+          "items": {
+            "type": "string",
+            "uniqueItems": true
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "required": ["library"],
+  "examples": [
+    {
+      "library": ["scout", "warden", "harvester", "expansion_lead"],
+      "spawn": [
+        {
+          "module": "expansion_lead",
+          "forge": "F_home_west",
+          "offset": [1, 2],
+          "args": { "well": [31, 12], "harvesters": 3 }
+        },
+        {
+          "module": "scout",
+          "forge": "F_home_east",
+          "args": { "dir": "N" }
+        }
+      ],
+      "board": {
+        "init": { "home": { "x": 6, "y": 6 } },
+        "reserved": ["threat", "home"]
+      }
+    }
+  ]
+}
