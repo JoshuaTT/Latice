@@ -13,6 +13,8 @@
     clippy::cast_precision_loss
 )]
 
+pub mod error;
+pub mod game;
 pub mod ruleset;
 
 /// World model: chunked grid, cells, terrain, ownership, integrity, marks,
