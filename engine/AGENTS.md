@@ -8,7 +8,35 @@ map generator, ghost builder, and telemetry sharder.
 
 ## Owned contracts
 
-None yet. Contracts will land in `spec/contracts/` during M0/M1.
+The engine implements these; change the contract first (in a spec PR), then the code.
+
+| Contract | Implemented by |
+|---|---|
+| `spec/contracts/engine-api.md` | `game` (Match, phases), `checker` (`check`), `events` (sinks), `snapshot`, `error` |
+| `spec/contracts/state-hash.md` | `world/hash.rs` (format version 1) |
+| `spec/contracts/events.schema.json` | `events` (event shapes and sequence numbers; emission by the resolvers, #53–#55) |
+| `spec/contracts/ruleset.schema.json` | `ruleset` (loader; rejects unknown and missing keys) |
+
+## Module map
+
+On `main` today (`engine/src/`):
+
+- `rng` — ChaCha RNG, one stream per (match seed, stream id).
+- `ruleset` — ruleset loader and board-scaled `derived(side)` values.
+- `world/` — `grid` (chunked, copy-on-write cells and marks), `entity` (drones, structures, Cores, Relics), `hash` (state hash), `ascii` (renderer). `World::check_invariants` verifies occupancy, bounds and terrain.
+- `tick/` — scheduler: parallel think, serial resolve, `Resolver` and `DroneProgram` traits.
+- `checker/` — LatticePy checker and node counter (**code-owned**); lowers into its own allow-list AST.
+- `game` — `Match` phase machine. `events` — event types and sinks. `snapshot` — in-memory snapshot and restore. `error` — `EngineError`.
+
+Planned (stub or absent): `vm` (#47, **code-owned**), `stdlib` (#56), `mapgen` (#50, #110), `ghost`, `shard`; resolvers for movement, combat and building (#53–#55); radio delivery (#103, blocked on a spec decision).
+
+## Invariants every PR must keep
+
+- **Determinism lints** (see below) stay on. A justified exception is a scoped `#[allow(clippy::disallowed_...)]` with the reason in a comment and in the PR (the benches and one checker timing test are the existing examples).
+- **Entity positions change only through `World::move_entity`.** There is no `&mut Entity`; Forge, Relic and Core terrain is owned by their entities. Tests of world-changing code should end with `check_invariants()`.
+- **New hashed state is added to `state-hash.md` first** (a spec PR, new format version if the encoding changes), then to `world/hash.rs`.
+- **`think_threads` must never change a result**; think output is sorted by entity id before resolve.
+- **Checker diagnostic codes are stable and append-only** (engine-api §1); the table is in the `checker` module docs.
 
 ## Local commands
 
@@ -47,10 +75,9 @@ invariants; seed inputs are in `engine/fuzz/corpus/checker/`. When a case in
 ## Acceptance tests
 
 - `cargo build` and `cargo test` must pass.
-- The module stubs must exactly match the names listed in
-  `spec/system-design.md` §2.1: `world`, `tick`, `vm`, `checker`, `stdlib`,
-  `mapgen`, `ghost`, `shard`. Shared support modules sit beside them
-  (`ruleset`).
+- Module names follow `spec/system-design.md` §2.1: `world`, `tick`, `vm`,
+  `checker`, `stdlib`, `mapgen`, `ghost`, `shard`. Shared support modules sit
+  beside them (`rng`, `ruleset`, `game`, `events`, `snapshot`, `error`).
 - All game parameters must be read from rulesets, never hard-coded. Load them
   with `ruleset::Ruleset::from_toml_str` (it rejects unknown and missing keys)
   and compute board-scaled values with `Ruleset::derived(side)`. Game logic
@@ -70,6 +97,7 @@ float arithmetic and comparison (`clippy::float_arithmetic`, `float_cmp`,
 
 ## What not to touch
 
+- `src/vm/` and `src/checker/` — the sandbox boundary; code-owned, so PRs wait for Josh and need escape tests (root `AGENTS.md` §11).
 - `spec/` — spec changes need a separate PR and human approval.
 - `.github/` — CI config is code-owned.
 - `tests/golden/` — golden hashes need human approval.
