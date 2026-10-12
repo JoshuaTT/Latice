@@ -170,7 +170,21 @@ impl<'a> Lower<'a> {
                     self.bad(at, "import", "only `from lattice import ...` is available; there are no other modules.");
                     return None;
                 }
-                let names = i.names.iter().map(|a| a.name.to_string()).filter(|n| n != "*").collect();
+                let mut names = Vec::new();
+                for a in &i.names {
+                    let name = a.name.as_str();
+                    if let Some(alias) = &a.asname {
+                        self.error(
+                            a.range().start(),
+                            "E_IMPORT_ALIAS",
+                            format!("`{name} as {alias}` is not allowed in LatticePy: import the name directly, `from lattice import {name}`."),
+                        );
+                    }
+                    if name != "*" {
+                        self.import_name(name, a.range().start());
+                        names.push(name.to_string());
+                    }
+                }
                 K::ImportLattice(names)
             }
             ast::Stmt::Import(_) => {
@@ -537,6 +551,37 @@ impl<'a> Lower<'a> {
         }
     }
 
+    /// Validate a name in `from lattice import ...`. Banned and dunder names
+    /// are refused (so the import list cannot smuggle them past the name
+    /// allow-list); once `lattice` has a defined export table (#38) any name
+    /// outside it is refused too.
+    fn import_name(&mut self, id: &str, at: TextSize) {
+        if let Some(why) = banned_why(id) {
+            let code = if id.starts_with("__") {
+                "E_DUNDER"
+            } else {
+                "E_BANNED_NAME"
+            };
+            self.error(
+                at,
+                code,
+                format!("`{id}` is not allowed in LatticePy: {why}"),
+            );
+        } else if UNPROVIDED_BUILTINS.contains(&id) {
+            self.error(
+                at,
+                "E_UNKNOWN_NAME",
+                format!("`{id}` is a Python builtin that `lattice` does not provide."),
+            );
+        } else if !LATTICE_EXPORTS.is_empty() && !LATTICE_EXPORTS.contains(&id) {
+            self.error(
+                at,
+                "E_IMPORT",
+                format!("`lattice` has no export named `{id}`."),
+            );
+        }
+    }
+
     /// Resolve a free name load. Names are denied unless they are in scope or on
     /// the allow-list (latticepy §2); the deny-list only picks friendlier text.
     fn name(&mut self, id: &str, at: TextSize) {
@@ -547,23 +592,7 @@ impl<'a> Lower<'a> {
         {
             return;
         }
-        let banned = match id {
-            "open" | "print" | "input" => {
-                Some("there is no I/O. Use `me.log(...)` to record information.")
-            }
-            "os" | "sys" | "io" | "time" | "datetime" | "threading" | "asyncio" | "random" => Some(
-                "there are no modules. `me.now` is the tick counter and `me.rand()` is the seeded random source.",
-            ),
-            "eval" | "exec" | "compile" | "__import__" | "getattr" | "setattr" | "hasattr"
-            | "delattr" | "vars" | "dir" | "type" | "isinstance" | "globals" | "locals"
-            | "hash" => Some("reflection and dynamic code are not available."),
-            "set" | "frozenset" => {
-                Some("sets have no deterministic order and are banned. Use a list or a dict.")
-            }
-            "float" => Some("host floats are banned. Use the `lattice` software float."),
-            _ if id.starts_with("__") => Some("dunder names are reflection and are not available."),
-            _ => None,
-        };
+        let banned = banned_why(id);
         if let Some(why) = banned {
             let code = if id.starts_with("__") {
                 "E_DUNDER"
@@ -749,8 +778,10 @@ const ALLOWED_GLOBALS: [&str; 5] = ["range", "str", "me", "team", "seen"];
 
 /// Names exported by `lattice` itself. Empty until the library API (#38)
 /// defines them; until then a module names what it uses with
-/// `from lattice import a, b`, which is the only way to bring more in.
-const LATTICE_EXPORTS: [&str; 0] = [];
+/// `from lattice import a, b`, which is the only way to bring more in. While
+/// this table is empty imports are checked only for banned and dunder names;
+/// TODO(#38): fill it in, after which unknown imports are rejected.
+const LATTICE_EXPORTS: &[&str] = &[];
 
 /// Stable code for each banned construct (the table in `checker/mod.rs`).
 fn code_of(construct: &str) -> &'static str {
@@ -800,3 +831,40 @@ fn edit_distance(a: &str, b: &str) -> usize {
     }
     row[b.len()]
 }
+
+/// Friendly reason for names that are known to be banned (latticepy §2).
+fn banned_why(id: &str) -> Option<&'static str> {
+    match id {
+        "open" | "print" | "input" => {
+            Some("there is no I/O. Use `me.log(...)` to record information.")
+        }
+        "os" | "sys" | "io" | "time" | "datetime" | "threading" | "asyncio" | "random" => Some(
+            "there are no modules. `me.now` is the tick counter and `me.rand()` is the seeded random source.",
+        ),
+        "eval" | "exec" | "compile" | "__import__" | "getattr" | "setattr" | "hasattr"
+        | "delattr" | "vars" | "dir" | "type" | "isinstance" | "globals" | "locals" | "hash" => {
+            Some("reflection and dynamic code are not available.")
+        }
+        "set" | "frozenset" => {
+            Some("sets have no deterministic order and are banned. Use a list or a dict.")
+        }
+        "float" => Some("host floats are banned. Use the `lattice` software float."),
+        _ if id.starts_with("__") => Some("dunder names are reflection and are not available."),
+        _ => None,
+    }
+}
+
+/// Python builtins the spec does not grant and `lattice` must never export;
+/// refused in import lists even while `LATTICE_EXPORTS` is still empty.
+const UNPROVIDED_BUILTINS: [&str; 10] = [
+    "id",
+    "object",
+    "super",
+    "breakpoint",
+    "iter",
+    "next",
+    "memoryview",
+    "issubclass",
+    "exit",
+    "quit",
+];

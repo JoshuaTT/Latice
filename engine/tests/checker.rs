@@ -425,3 +425,45 @@ fn report_follows_the_engine_api_contract() {
     // Identical input gives identical output.
     assert_eq!(check(SCOUT), check(SCOUT));
 }
+
+#[test]
+fn import_list_cannot_smuggle_banned_names() {
+    for (name, code) in [
+        ("getattr", "E_BANNED_NAME"),
+        ("id", "E_UNKNOWN_NAME"),
+        ("object", "E_UNKNOWN_NAME"),
+        ("__builtins__", "E_DUNDER"),
+        ("open", "E_BANNED_NAME"),
+    ] {
+        let src = format!(
+            "from lattice import {name}\ndef init(me, args):\n    pass\ndef tick(me):\n    x = {name}(me)\n"
+        );
+        let r = check(&src);
+        assert!(!r.ok, "`from lattice import {name}` accepted");
+        if code != "E_UNKNOWN_NAME" {
+            assert!(
+                r.diagnostics.iter().any(|d| d.code == code && d.line == 1),
+                "{name}: {:?}",
+                r.diagnostics
+            );
+        }
+    }
+}
+
+#[test]
+fn import_aliases_are_rejected() {
+    let src = "from lattice import foo as bar\ndef init(me, args):\n    pass\ndef tick(me):\n    bar(1)\n";
+    let r = check(src);
+    assert!(
+        r.diagnostics
+            .iter()
+            .any(|d| d.code == "E_IMPORT_ALIAS" && d.line == 1)
+    );
+}
+
+#[test]
+#[ignore = "needs the lattice export table from #38; imports are only checked for banned names until then"]
+fn unknown_lattice_exports_are_rejected() {
+    let src = "from lattice import not_a_real_export\ndef init(me, args):\n    pass\ndef tick(me):\n    pass\n";
+    assert!(!check(src).ok);
+}

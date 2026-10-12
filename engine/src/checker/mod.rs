@@ -20,7 +20,8 @@
 //! | `E_NESTING` | brackets, blocks or expressions nested too deeply |
 //! | `E_NODE_CAP` | more than [`MAX_CODE_NODES`] AST nodes |
 //! | `E_INTERFACE` | `init`/`tick`/handler missing or wrongly declared |
-//! | `E_IMPORT` | any import other than one `from lattice import ...` |
+//! | `E_IMPORT` | any import other than one `from lattice import ...`, or (once #38 defines the exports) a name `lattice` does not export |
+//! | `E_IMPORT_ALIAS` | `from lattice import x as y` (import the name directly) |
 //! | `E_TOPLEVEL` | module-level statement other than import, `def`, literal constant |
 //! | `E_STMT_BANNED` | `try`, `raise`, `with`, `assert`, `global`, `nonlocal`, `del`, `class`, `async`, `match`, type alias |
 //! | `E_EXPR_BANNED` | lambda, `:=`, sets, dict/set comprehension, generator, `await`, `yield`, f-string, `*` |
