@@ -389,10 +389,16 @@ check_local() {
     warn "claude not found; install Claude Code (https://claude.com/claude-code)"; return 1
   fi
   ok "claude $(claude --version 2>/dev/null | head -1)"
+  # Catch a misspelled key name in .env (it would silently fall back to the login).
+  if [[ -f "$HERE/.env" ]] && grep -qE '^[A-Z_]*ANTHROPIC[A-Z_]*KEY=.' "$HERE/.env" \
+       && ! grep -qE '^LOCAL_ANTHROPIC_API_KEY=.' "$HERE/.env"; then
+    warn ".env sets $(grep -oE '^[A-Z_]*ANTHROPIC[A-Z_]*KEY' "$HERE/.env" | head -1), but local agents read LOCAL_ANTHROPIC_API_KEY"
+    fail=1
+  fi
   if [[ -n "${LOCAL_ANTHROPIC_API_KEY:-}" ]]; then
     ok "using LOCAL_ANTHROPIC_API_KEY from .env"
   elif env -u ANTHROPIC_API_KEY -u ANTHROPIC_BASE_URL claude auth status >/dev/null 2>&1; then
-    ok "signed in to Claude Code"
+    ok "Claude Code has stored credentials (the test call below confirms they work)"
   else
     warn "Claude Code isn't signed in (run: claude auth login), or set LOCAL_ANTHROPIC_API_KEY in .env"; fail=1
   fi
@@ -412,7 +418,16 @@ check_local() {
     else
       warn "$name: Claude Code run failed with model '$model':"
       printf '%s\n' "$out" | head -5 | sed 's/^/      /' >&2
-      warn "(if a flag is unknown, update Claude Code: claude update)"
+      if grep -qiE '401|authenticat|invalid.*(token|key)' <<<"$out"; then
+        if [[ -n "${LOCAL_ANTHROPIC_API_KEY:-}" ]]; then
+          warn "Anthropic rejected LOCAL_ANTHROPIC_API_KEY; check the key in .env"
+        else
+          warn "your Claude Code sign-in has expired or is invalid: run 'claude auth login'"
+          warn "(or set LOCAL_ANTHROPIC_API_KEY in .env to use an API key instead)"
+        fi
+      else
+        warn "(if a flag is unknown, update Claude Code: claude update)"
+      fi
       fail=1
     fi
   done
