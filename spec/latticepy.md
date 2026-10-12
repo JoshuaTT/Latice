@@ -248,6 +248,10 @@ Runtime errors (each a named code in telemetry):
 - `fuel_exhausted`: fuel reached 0 mid-tick (also the normal stop condition).
 - `cap_violation`: exceeding any §6 limit (string/list/dict/mem/recursion/value
   count).
+- `bad_call`: a `lattice` library call with an argument of the wrong type or
+  a semantically invalid value (spec/lattice-api.md §0). The call is not
+  executed; soft failures (legitimately unavailable results) are *not* this
+  error — they return `None`/`False`.
 - `index_error` / `key_error`: out-of-range subscript or missing dict key.
 - `check_error`: a compile-time violation (banned node) — the module is rejected
   at `lattice check` time and cannot be deployed; this is not a runtime error.
