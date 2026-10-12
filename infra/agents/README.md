@@ -70,6 +70,34 @@ Other commands:
 | `./swarm.sh down` | Remove sessions (asks first) |
 | `./swarm.sh render w3` | Print one agent's rendered spec |
 
+## Running an agent on your laptop
+
+Set an agent's adapter to `local` in `swarm.conf` to run it as Claude Code on your machine, billed to your own Anthropic account instead of DigitalOcean:
+
+```
+# name         role         adapter      model    size
+coordinator    coordinator  local        opus     -
+```
+
+The model column takes a Claude Code model alias (`opus`, `sonnet`, `haiku`) or a full model name. Everything else works the same: `up`, `nudge`, `watch`, `status`, `logs`, `attach`, `pause`, and `down` handle local and DigitalOcean agents together.
+
+**Setup:** install Claude Code and sign in (`claude auth login`). To bill an Anthropic Console API key instead of your login, set `LOCAL_ANTHROPIC_API_KEY` in `.env`; `LOCAL_MAX_BUDGET_USD` caps each run's spend. `./swarm.sh check` makes one tiny tool-free call per local agent to confirm sign-in, model access, and the sandbox.
+
+**How it runs:**
+- Each local agent gets its own workspace in `~/lattice-swarm/<name>` (change with `LATTICE_LOCAL_HOME`) and clones the repo there, exactly like a DigitalOcean agent.
+- Runs use `claude -p`; nudges use `--continue`, so the agent keeps its conversation across nudges. `attach` opens that same conversation interactively.
+- Its environment is scrubbed: the DigitalOcean key is removed, and `gh`/`git` act as the agent's GitHub token, not your own `gh` login.
+- `caffeinate` keeps the Mac awake while a run is in progress. If the laptop is closed or shut down, the run stops and the next nudge continues it.
+
+**Containment.** A DigitalOcean agent runs in its own microVM; a local one runs on your machine, so the script turns on Claude Code's OS-level sandbox for its shell commands (`./swarm.sh render <name>` shows the exact settings):
+- writes only to its workspace and tool caches (`~/.cargo`, `~/.rustup`, `~/.cache`, `~/.npm`, `~/.local`, `~/Library/Caches`)
+- network only to GitHub and the Rust, Python, and npm package registries
+- no reading `~/.ssh`, cloud credentials, your `gh`/`doctl` config, or this folder's `.env`
+- the same deny rules as the DigitalOcean specs (no force-push, no pushing to `main`, no admin merges)
+- permission prompts are refused rather than waiting for you, and the sandbox can't fall back to running unsandboxed
+
+`gh` runs outside the sandbox (Go tools can fail TLS checks inside it on macOS), so it uses the agent's token with your normal access to the network. Claude Code still loads your personal `~/.claude` settings and `CLAUDE.md`; MCP servers are not loaded.
+
 ## Tuning the swarm
 
 - **Fewer agents early.** M0 is mostly spec PRs that need your approval, so start with the coordinator and two workers (`./swarm.sh up coordinator w1 w2`) and add more at M1, when the engine work can run in parallel.
@@ -85,6 +113,7 @@ Other commands:
 
 - **A doctl command fails with an unknown flag.** Managed Agents is in public preview and its CLI is changing. Run `./swarm.sh check`, compare with `doctl harness-runtime <command> --help`, and adjust `swarm.sh`.
 - **doctl asks for an Anthropic API key.** Don't paste one. The `claude-code` adapter requires `ANTHROPIC_API_KEY`, and our Claude Code agents send it to DigitalOcean Inference, so `swarm.sh` sets it to your DigitalOcean model access key automatically. If you see the prompt, you're running `doctl` directly instead of through `swarm.sh`, or `.env` isn't loaded.
+- **"403 this model is not available for your subscription tier".** DigitalOcean Inference Tier 1 and 2 accounts can't use Anthropic or OpenAI models (except gpt-oss). Use open-weight models in `swarm.conf` until your account reaches Tier 3; `./swarm.sh check` makes a 1-token test call per model so this shows up before `up`.
 - **What did an agent say?** `cat infra/agents/.swarm/<name>.log` for its replies to each prompt; `./swarm.sh logs <name>` for the full event history on DigitalOcean.
 - **An agent asked for approval.** Prompts run with `--on-hitl reject`, so approval requests are refused rather than left hanging. If an agent keeps hitting one, add an explicit rule for it in `specs/<adapter>.yaml`.
 - **An agent times out installing something.** Its host isn't in the spec's `egress` list. Add it to `specs/<adapter>.yaml` and recreate the session.
