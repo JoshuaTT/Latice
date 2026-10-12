@@ -1,0 +1,29 @@
+{
+  "provenance": {
+    "engine_version": "0.1.0",
+    "ruleset_version": "1.0.0",
+    "seed": "2a",
+    "board_side": 64,
+    "ticks_requested": 1,
+    "teams": {
+      "a": { "module_paths": ["a.py"] },
+      "b": { "module_paths": ["b.py"] }
+    },
+    "command_line": ["lattice", "sim", "--json"]
+  },
+  "result": {
+    "final_tick": 1,
+    "winner": "draw",
+    "end_reason": "length_reached",
+    "scores": {
+      "a": { "owned_cells": 9, "wells_held": 0, "relics_held": 0, "remaining_core_hp": 200, "live_drones": 1, "total": 212 },
+      "b": { "owned_cells": 9, "wells_held": 0, "relics_held": 0, "remaining_core_hp": 200, "live_drones": 1, "total": 212 }
+    }
+  },
+  "hashes": {
+    "serialization_contract": "spec/contracts/state-hash.md#v1",
+    "snapshots": [{ "tick": 0, "hash": "7fe1d33cd90de2299ac1a756d3776669d1a347fbb4f2e376d6bc797e81c1f4b6" }],
+    "final_state_hash": { "tick": 1, "hash": "bd56a3937560c1c67034f2188f1cd0d05bd7b0ae25f2adf1b00b271d8d9fb21a" }
+  },
+  "error": { "kind": "internal", "message": "a run must not report both a result and an error" }
+}

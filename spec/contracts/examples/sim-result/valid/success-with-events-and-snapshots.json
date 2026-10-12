@@ -1,0 +1,70 @@
+{
+  "provenance": {
+    "engine_version": "0.1.0",
+    "ruleset_version": "1.0.0",
+    "seed": "01",
+    "board_side": 64,
+    "ticks_requested": 2,
+    "hash_every": 1,
+    "snapshot_every": 1,
+    "teams": {
+      "a": { "module_paths": ["tests/scenarios/walker.py"] },
+      "b": { "module_paths": ["tests/scenarios/idle.py"] }
+    },
+    "command_line": ["lattice", "sim", "--seed", "01", "--ticks", "2", "--hash-every", "1", "--events", "--snapshot-every", "1", "--json"]
+  },
+  "result": {
+    "final_tick": 2,
+    "winner": "draw",
+    "end_reason": "length_reached",
+    "scores": {
+      "a": { "owned_cells": 9, "wells_held": 0, "relics_held": 0, "remaining_core_hp": 200, "live_drones": 1, "total": 212 },
+      "b": { "owned_cells": 9, "wells_held": 0, "relics_held": 0, "remaining_core_hp": 200, "live_drones": 1, "total": 212 }
+    }
+  },
+  "hashes": {
+    "serialization_contract": "spec/contracts/state-hash.md#v1",
+    "snapshots": [
+      { "tick": 0, "hash": "7fe1d33cd90de2299ac1a756d3776669d1a347fbb4f2e376d6bc797e81c1f4b6" },
+      { "tick": 1, "hash": "bd56a3937560c1c67034f2188f1cd0d05bd7b0ae25f2adf1b00b271d8d9fb21a" },
+      { "tick": 2, "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+    ],
+    "final_state_hash": { "tick": 2, "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+  },
+  "events": [
+    {
+      "match_id": "550e8400-e29b-41d4-a716-446655440000",
+      "epoch": 1,
+      "tick": 0,
+      "seq": 0,
+      "event_type": "move",
+      "payload": { "drone_id": "drone-A-001", "from": { "x": 5, "y": 5 }, "to": { "x": 6, "y": 5 } }
+    },
+    {
+      "match_id": "550e8400-e29b-41d4-a716-446655440000",
+      "epoch": 1,
+      "tick": 1,
+      "seq": 1,
+      "event_type": "move",
+      "payload": { "drone_id": "drone-A-001", "from": { "x": 6, "y": 5 }, "to": { "x": 7, "y": 5 } }
+    }
+  ],
+  "snapshots": [
+    {
+      "tick": 1,
+      "drones": [
+        { "id": "drone-A-001", "team": "a", "position": { "x": 6, "y": 5 }, "energy": 0, "hp": 10 },
+        { "id": "drone-B-001", "team": "b", "position": { "x": 57, "y": 58 }, "energy": 0, "hp": 10 }
+      ],
+      "team_energy": { "a": 400, "b": 400 }
+    },
+    {
+      "tick": 2,
+      "drones": [
+        { "id": "drone-A-001", "team": "a", "position": { "x": 7, "y": 5 }, "energy": 0, "hp": 10 },
+        { "id": "drone-B-001", "team": "b", "position": { "x": 57, "y": 58 }, "energy": 0, "hp": 10 }
+      ],
+      "team_energy": { "a": 400, "b": 400 }
+    }
+  ]
+}

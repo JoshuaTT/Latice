@@ -1,0 +1,20 @@
+{
+  "provenance": {
+    "engine_version": "0.1.0",
+    "ruleset_version": "1.0.0",
+    "seed": "2a",
+    "board_side": 64,
+    "ticks_requested": 500,
+    "teams": {
+      "a": { "module_paths": ["bots/harvester.py"] },
+      "b": { "module_paths": ["bad/uses_open.py"] }
+    },
+    "command_line": ["lattice", "sim", "--seed", "2a", "--ticks", "500", "--json"]
+  },
+  "error": {
+    "kind": "check_failed",
+    "message": "bad/uses_open.py:6:5: error E_BANNED_NAME: `open` is not allowed in LatticePy: there is no I/O.",
+    "team": "b",
+    "path": "bad/uses_open.py"
+  }
+}

@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sim Result Schema",
+  "description": "One JSON document per `lattice sim --json` run (system design 2.6, 11.3). `lattice-cli` writes it (#58) and the scenario harness reads it, so scenarios can assert on winner, score bounds, events, hashes and invariants without scraping text. A run either succeeded (`result` and `hashes` present, no `error`) or failed (`error` present, no `result`). Provenance names everything needed to rerun the run (game design 18.5): engine and ruleset versions, seed, board side, tick count, the module paths of each team and the exact command line. Team-keyed objects use the lowercase keys `a` and `b` (the lowercase of the `Team` values in events.schema.json). Events are not redefined here: they `$ref` events.schema.json, which is resolved relative to this file. Hashes use the format of tests/golden/README.md (lowercase hex SHA-256 of the canonical serialization in state-hash.md). Snapshots are a deliberately small per-tick summary for invariant checks; the full canonical state is the state hash's job.",
+  "type": "object",
+  "required": ["provenance"],
+  "properties": {
+    "provenance": {
+      "type": "object",
+      "required": ["engine_version", "ruleset_version", "seed", "board_side", "ticks_requested", "teams", "command_line"],
+      "properties": {
+        "engine_version": { "type": "string", "minLength": 1 },
+        "ruleset_version": { "type": "string", "minLength": 1 },
+        "seed": {
+          "type": "string",
+          "description": "Match seed as lowercase hex, as in tests/golden match.json.",
+          "pattern": "^[0-9a-f]{1,64}$"
+        },
+        "board_side": { "type": "integer", "minimum": 64 },
+        "ticks_requested": { "type": "integer", "minimum": 0 },
+        "hash_every": { "type": "integer", "minimum": 1 },
+        "snapshot_every": { "type": "integer", "minimum": 1 },
+        "teams": {
+          "type": "object",
+          "required": ["a", "b"],
+          "properties": {
+            "a": { "$ref": "#/$defs/TeamModules" },
+            "b": { "$ref": "#/$defs/TeamModules" }
+          },
+          "additionalProperties": false
+        },
+        "command_line": {
+          "type": "array",
+          "description": "argv of the run, program name first, so a failing scenario can print an exact repro.",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "required": ["final_tick", "winner", "end_reason", "scores"],
+      "properties": {
+        "final_tick": { "type": "integer", "minimum": 0 },
+        "winner": { "enum": ["a", "b", "draw"] },
+        "end_reason": {
+          "description": "core_destroyed and core_captured are the win conditions of game design 13; length_reached means the clash length ran out.",
+          "enum": ["core_destroyed", "core_captured", "length_reached"]
+        },
+        "scores": {
+          "type": "object",
+          "required": ["a", "b"],
+          "properties": {
+            "a": { "$ref": "#/$defs/Score" },
+            "b": { "$ref": "#/$defs/Score" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "hashes": {
+      "type": "object",
+      "required": ["serialization_contract", "snapshots", "final_state_hash"],
+      "properties": {
+        "serialization_contract": {
+          "type": "string",
+          "description": "Format version the hashes were produced with, e.g. spec/contracts/state-hash.md#v1."
+        },
+        "snapshots": {
+          "type": "array",
+          "description": "State hashes at tick 0 and then every hash_every ticks.",
+          "items": { "$ref": "#/$defs/TickHash" },
+          "minItems": 1
+        },
+        "final_state_hash": { "$ref": "#/$defs/TickHash" }
+      },
+      "additionalProperties": false
+    },
+    "events": {
+      "type": "array",
+      "description": "The clash event stream; present only with --events.",
+      "items": { "$ref": "events.schema.json" }
+    },
+    "snapshots": {
+      "type": "array",
+      "description": "Per-tick invariant summaries; present only with --snapshot-every.",
+      "items": { "$ref": "#/$defs/InvariantSnapshot" }
+    },
+    "error": {
+      "type": "object",
+      "required": ["kind", "message"],
+      "properties": {
+        "kind": {
+          "description": "check_failed: a module failed `lattice check`; bad_args: invalid command line or ruleset; module_unreadable: a module file could not be read; engine_error: the engine returned an error; internal: a bug.",
+          "enum": ["check_failed", "bad_args", "module_unreadable", "engine_error", "internal"]
+        },
+        "message": { "type": "string", "minLength": 1 },
+        "team": { "$ref": "#/$defs/TeamKey" },
+        "path": { "type": "string", "description": "Module path the error concerns, if any." },
+        "tick": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["result", "hashes"],
+      "not": { "required": ["error"] }
+    },
+    {
+      "required": ["error"],
+      "not": {
+        "anyOf": [
+          { "required": ["result"] },
+          { "required": ["hashes"] }
+        ]
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "TeamKey": { "enum": ["a", "b"] },
+    "TeamModules": {
+      "type": "object",
+      "required": ["module_paths"],
+      "properties": {
+        "module_paths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "Score": {
+      "type": "object",
+      "description": "Components use the ruleset's score_weights names (game design 13), as raw counts before weighting; total is the weighted sum.",
+      "required": ["owned_cells", "wells_held", "relics_held", "remaining_core_hp", "live_drones", "total"],
+      "properties": {
+        "owned_cells": { "type": "integer", "minimum": 0 },
+        "wells_held": { "type": "integer", "minimum": 0 },
+        "relics_held": { "type": "integer", "minimum": 0 },
+        "remaining_core_hp": { "type": "integer", "minimum": 0 },
+        "live_drones": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "TickHash": {
+      "type": "object",
+      "required": ["tick", "hash"],
+      "properties": {
+        "tick": { "type": "integer", "minimum": 0 },
+        "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "InvariantSnapshot": {
+      "type": "object",
+      "required": ["tick", "drones", "team_energy"],
+      "properties": {
+        "tick": { "type": "integer", "minimum": 0 },
+        "drones": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "team", "position", "energy", "hp"],
+            "properties": {
+              "id": { "type": "string" },
+              "team": { "$ref": "#/$defs/TeamKey" },
+              "position": { "$ref": "events.schema.json#/$defs/Position" },
+              "energy": { "type": "integer", "minimum": 0, "description": "Energy the drone carries." },
+              "hp": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "team_energy": {
+          "type": "object",
+          "description": "Each team's stored energy pool.",
+          "required": ["a", "b"],
+          "properties": {
+            "a": { "type": "integer", "minimum": 0 },
+            "b": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

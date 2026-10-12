@@ -1,0 +1,33 @@
+{
+  "provenance": {
+    "engine_version": "0.1.0",
+    "ruleset_version": "1.0.0",
+    "seed": "2a",
+    "board_side": 64,
+    "ticks_requested": 500,
+    "hash_every": 250,
+    "teams": {
+      "a": { "module_paths": ["bots/harvester.py", "bots/warden.py"] },
+      "b": { "module_paths": ["bots/harvester.py"] }
+    },
+    "command_line": ["lattice", "sim", "--seed", "2a", "--ticks", "500", "--hash-every", "250", "--json"]
+  },
+  "result": {
+    "final_tick": 500,
+    "winner": "a",
+    "end_reason": "length_reached",
+    "scores": {
+      "a": { "owned_cells": 410, "wells_held": 3, "relics_held": 1, "remaining_core_hp": 200, "live_drones": 9, "total": 742 },
+      "b": { "owned_cells": 388, "wells_held": 2, "relics_held": 1, "remaining_core_hp": 200, "live_drones": 7, "total": 699 }
+    }
+  },
+  "hashes": {
+    "serialization_contract": "spec/contracts/state-hash.md#v1",
+    "snapshots": [
+      { "tick": 0, "hash": "7fe1d33cd90de2299ac1a756d3776669d1a347fbb4f2e376d6bc797e81c1f4b6" },
+      { "tick": 250, "hash": "bd56a3937560c1c67034f2188f1cd0d05bd7b0ae25f2adf1b00b271d8d9fb21a" },
+      { "tick": 500, "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+    ],
+    "final_state_hash": { "tick": 500, "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+  }
+}
