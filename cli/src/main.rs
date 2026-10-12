@@ -1,4 +1,8 @@
+use std::path::Path;
+use std::process::ExitCode;
+
 use clap::{Parser, Subcommand, ValueEnum};
+use lattice_cli::replay::{self, Outcome, Target};
 
 /// LATTICE: 5v5 game for LLM players.
 #[derive(Parser)]
@@ -33,7 +37,7 @@ enum TargetParity {
     Wasm,
 }
 
-fn main() {
+fn main() -> ExitCode {
     let cli = Cli::parse();
 
     match cli.command {
@@ -48,25 +52,20 @@ fn main() {
         }
         Commands::Replay {
             verify,
-            target_parity: _,
+            target_parity,
         } => {
             if let Some(dir) = verify {
-                match std::fs::read_dir(&dir) {
-                    Ok(entries) => {
-                        let count = entries.filter_map(|e| e.ok()).count();
-                        if count == 0 {
-                            println!("replay: no golden replays found in '{dir}'");
-                        } else {
-                            println!(
-                                "replay: will verify {} golden replays against '{dir}'",
-                                count
-                            );
-                        }
+                let target = match target_parity {
+                    TargetParity::Native => Target::Native,
+                    TargetParity::Wasm => Target::Wasm,
+                };
+                match replay::verify(Path::new(&dir), target) {
+                    Ok(Outcome::NoMatches) => {
+                        println!("replay: no golden matches in '{dir}'");
                     }
-                    Err(_) => {
-                        println!(
-                            "replay: no golden replays in '{dir}' — directory does not exist yet"
-                        );
+                    Err(err) => {
+                        eprintln!("replay: {err}");
+                        return ExitCode::FAILURE;
                     }
                 }
             } else {
@@ -74,4 +73,5 @@ fn main() {
             }
         }
     }
+    ExitCode::SUCCESS
 }

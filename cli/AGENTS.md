@@ -28,8 +28,16 @@ cargo run --release -p lattice-cli -- replay --verify tests/golden
 
 ## Acceptance tests
 
-- `replay --verify <dir>` must exit 0 when the directory is empty or missing
-  (the CI `determinism` job relies on this).
+- `replay --verify <dir>` (logic in `src/replay.rs`) discovers matches as
+  immediate subdirectories of `<dir>` containing `match.json`, in sorted order.
+  - No matches (e.g. only `README.md`): prints a notice and exits 0. The CI
+    `determinism` job relies on this until M1 adds fixtures.
+  - `<dir>` missing or not a directory: error, non-zero exit.
+  - Any match: validates `match.json` (`match_id` = directory name) and
+    `expected/hashes.json` (≥1 snapshot), then exits non-zero because engine
+    replay is not implemented yet. Never report success for an unverified
+    fixture.
+  - `--target-parity wasm` with any match: non-zero until the WASM runner exists.
 - All subcommands (`sim`, `check`, `mapgen`, `replay`) must accept their
   documented flags and exit 0 with empty/stub behavior.
 - The binary is named `lattice` (the crate provides `[[bin]] name = "lattice"`).
