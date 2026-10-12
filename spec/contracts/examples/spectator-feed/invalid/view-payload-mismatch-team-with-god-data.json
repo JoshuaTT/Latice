@@ -1,0 +1,17 @@
+{
+  "tool": "get_state",
+  "view": "team",
+  "match_id": "550e8400-e29b-41d4-a716-446655440000",
+  "match_status": "live",
+  "delay_epochs": 1,
+  "ok": true,
+  "result": {
+    "tick": 128,
+    "epoch": 2,
+    "team": "A",
+    "teams": {
+      "A": { "team": "A", "score": 210, "core_hp": 200 },
+      "B": { "team": "B", "score": 185, "core_hp": 176 }
+    }
+  }
+}

@@ -1,0 +1,529 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lattice Spectator Feed",
+  "description": "Request and result envelopes for every tool of the read-only Spectator feed (system design §3.1, §5; game design §15), served to AI spectators over MCP and to the human web app over WebSocket. The feed is strictly read-only and has no channel to players. Views are 'god' (everything, including both teams' chat and code), 'team' (exactly what one team saw), and 'player' (exactly what one player saw). The server derives the view from the caller's token; clients never choose it, so requests carry no view field and every response envelope names the view it was rendered in. Delay policy (system design §5): live matches are served at least one full epoch behind live (configurable per league); while a match is live every response therefore reports delay_epochs >= 1. Finished matches are fully public in god view (configurable per league) and are served with delay_epochs 0. Event payloads inside feed results $ref the clash event schema (events.schema.json) and are not redefined here. Error codes form a closed list: 'unknown_tool' (no such feed tool), 'bad_args' (arguments violate the tool's schema or game rules, e.g. a tick range with from > to), 'not_visible' (the requested content is not visible in the caller's view, or is ahead of the delay watermark; visibility and delay are enforced server-side), 'not_found' (match, module, epoch, or region does not exist).",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" }
+  ],
+  "$defs": {
+    "view": {
+      "type": "string",
+      "enum": ["god", "team", "player"],
+      "description": "The view a response was rendered in (game design §15). Assigned by the server from the caller's token; never client-chosen."
+    },
+    "tool_name": {
+      "type": "string",
+      "enum": [
+        "get_state",
+        "query_events",
+        "region_digest",
+        "get_code",
+        "get_chat",
+        "get_scoreboard",
+        "subscribe"
+      ]
+    },
+    "match_id": {
+      "type": "string",
+      "description": "Unique identifier for the match (UUID format), as in events.schema.json."
+    },
+    "tick": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Tick number within an epoch."
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Epoch number (1-4)."
+    },
+    "team": {
+      "type": "string",
+      "enum": ["A", "B"],
+      "description": "A competing team. Spectator content is always about A or B; 'Neutral' ownership only appears inside event payloads."
+    },
+    "seat": {
+      "type": "string",
+      "pattern": "^P[0-9]+$",
+      "description": "Seat identifier of a single player, as in gateway-tools.schema.json."
+    },
+    "region": {
+      "type": "object",
+      "description": "Axis-aligned rectangular map region in cells.",
+      "properties": {
+        "x0": { "type": "integer", "minimum": 0 },
+        "y0": { "type": "integer", "minimum": 0 },
+        "x1": { "type": "integer", "minimum": 0 },
+        "y1": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["x0", "y0", "x1", "y1"],
+      "additionalProperties": false
+    },
+    "tick_range": {
+      "type": "object",
+      "description": "Inclusive tick interval [from, to]. The server rejects from > to with 'bad_args'; each bound is a tick number.",
+      "properties": {
+        "from": { "$ref": "#/$defs/tick" },
+        "to": { "$ref": "#/$defs/tick" }
+      },
+      "required": ["from", "to"],
+      "additionalProperties": false
+    },
+    "event_filter": {
+      "type": "object",
+      "description": "Optional predicates combined with logical AND. Server-side sharding decides which events a view may see before the filter is applied.",
+      "properties": {
+        "event_types": {
+          "type": "array",
+          "items": { "$ref": "events.schema.json#/properties/event_type" },
+          "minItems": 1
+        },
+        "teams": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/team" },
+          "minItems": 1
+        },
+        "region": { "$ref": "#/$defs/region" },
+        "drone_id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "stream": {
+      "type": "string",
+      "enum": ["events", "state", "scoreboard"],
+      "description": "A live stream a spectator can subscribe to. Streamed items use the same result shapes as the matching one-shot tool."
+    },
+    "chat_message": {
+      "type": "object",
+      "description": "One team-chat message, shaped like the gateway's read_channel messages (gateway-tools.schema.json).",
+      "properties": {
+        "seq": { "type": "integer", "minimum": 0 },
+        "sender": { "type": "string" },
+        "beat_id": { "type": "integer", "minimum": 0 },
+        "text": { "type": "string" },
+        "tokens": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["seq", "sender", "beat_id", "text"],
+      "additionalProperties": false
+    },
+    "score_entry": {
+      "type": "object",
+      "description": "One team's standing per the scoring rules (game design §13).",
+      "properties": {
+        "team": { "$ref": "#/$defs/team" },
+        "score": { "type": "integer", "minimum": 0 },
+        "core_hp": { "type": "integer", "minimum": 0 },
+        "cells": { "type": "integer", "minimum": 0 },
+        "wells": { "type": "integer", "minimum": 0 },
+        "relics": { "type": "integer", "minimum": 0 },
+        "live_drones": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["team", "score", "core_hp"],
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "description": "A feed tool call. Requests carry no view: the server picks the view from the token (system design §3.1).",
+      "not": { "required": ["ok"] },
+      "properties": {
+        "tool": { "$ref": "#/$defs/tool_name" },
+        "args": { "type": "object" }
+      },
+      "required": ["tool"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "tool": { "const": "get_state" } },
+            "required": ["tool"]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "tick": { "$ref": "#/$defs/tick" }
+                },
+                "required": ["tick"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "tool": { "const": "query_events" } },
+            "required": ["tool"]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "filter": { "$ref": "#/$defs/event_filter" },
+                  "tick_range": { "$ref": "#/$defs/tick_range" }
+                },
+                "required": ["filter", "tick_range"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "tool": { "const": "region_digest" } },
+            "required": ["tool"]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "region": { "$ref": "#/$defs/region" },
+                  "epoch": { "$ref": "#/$defs/epoch" }
+                },
+                "required": ["region", "epoch"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "tool": { "const": "get_code" } },
+            "required": ["tool"]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "team": { "$ref": "#/$defs/team" },
+                  "module": { "type": "string", "minLength": 1 },
+                  "epoch": { "$ref": "#/$defs/epoch" }
+                },
+                "required": ["team", "module", "epoch"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "tool": { "const": "get_chat" } },
+            "required": ["tool"]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "team": { "$ref": "#/$defs/team" },
+                  "range": { "$ref": "#/$defs/tick_range" }
+                },
+                "required": ["team", "range"],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "tool": { "const": "get_scoreboard" } },
+            "required": ["tool"]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "tool": { "const": "subscribe" } },
+            "required": ["tool"]
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "type": "object",
+                "properties": {
+                  "stream": { "$ref": "#/$defs/stream" }
+                },
+                "required": ["stream"],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "description": "Common response envelope: exactly one of result/error, plus the view the payload was rendered in. The server sets view from the token; a response whose payload scope contradicts its view is invalid.",
+      "properties": {
+        "tool": { "$ref": "#/$defs/tool_name" },
+        "view": { "$ref": "#/$defs/view" },
+        "match_id": { "$ref": "#/$defs/match_id" },
+        "match_status": {
+          "enum": ["live", "finished"],
+          "description": "Whether the match is still running. Finished matches are fully public in god view (system design §5)."
+        },
+        "delay_epochs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many epochs the served content trails live play. Live matches are served at least one full epoch behind (system design §5), so live responses must report >= 1; finished matches report 0."
+        },
+        "ok": { "type": "boolean" },
+        "result": { "type": "object" },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "enum": ["unknown_tool", "bad_args", "not_visible", "not_found"]
+            },
+            "message": { "type": "string" }
+          },
+          "required": ["code"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["tool", "view", "match_id", "match_status", "delay_epochs", "ok"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "match_status": { "const": "live" } },
+            "required": ["match_status"]
+          },
+          "then": {
+            "properties": {
+              "delay_epochs": { "minimum": 1 }
+            }
+          }
+        },
+        {
+          "oneOf": [
+            {
+              "properties": { "ok": { "const": true } },
+              "anyOf": [
+                {
+                  "properties": {
+                    "tool": { "const": "get_state" },
+                    "result": {
+                      "type": "object",
+                      "description": "A snapshot of the board at one tick, rendered in the envelope's view. God view is global (no team/seat anchor, both teams' summaries under 'teams'); team view is anchored to one team and must not contain both-teams data; player view is anchored to one seat.",
+                      "properties": {
+                        "tick": { "$ref": "#/$defs/tick" },
+                        "epoch": { "$ref": "#/$defs/epoch" },
+                        "team": { "$ref": "#/$defs/team" },
+                        "seat": { "$ref": "#/$defs/seat" },
+                        "teams": {
+                          "type": "object",
+                          "description": "Both teams' summaries; only present in god view.",
+                          "properties": {
+                            "A": { "$ref": "#/$defs/score_entry" },
+                            "B": { "$ref": "#/$defs/score_entry" }
+                          },
+                          "required": ["A", "B"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["tick", "epoch"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["tool", "result"],
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": { "view": { "const": "god" } },
+                        "required": ["view"]
+                      },
+                      "then": {
+                        "not": {
+                          "properties": {
+                            "result": { "required": ["team"] }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": { "view": { "const": "team" } },
+                        "required": ["view"]
+                      },
+                      "then": {
+                        "properties": {
+                          "result": { "required": ["team"] }
+                        },
+                        "not": {
+                          "properties": {
+                            "result": { "required": ["teams"] }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": { "view": { "const": "player" } },
+                        "required": ["view"]
+                      },
+                      "then": {
+                        "properties": {
+                          "result": { "required": ["team", "seat"] }
+                        },
+                        "not": {
+                          "properties": {
+                            "result": { "required": ["teams"] }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "properties": {
+                    "tool": { "const": "query_events" },
+                    "result": {
+                      "type": "object",
+                      "description": "Events are clash events per events.schema.json, already filtered to the caller's view server-side.",
+                      "properties": {
+                        "tick_range": { "$ref": "#/$defs/tick_range" },
+                        "events": {
+                          "type": "array",
+                          "items": { "$ref": "events.schema.json" }
+                        }
+                      },
+                      "required": ["tick_range", "events"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["tool", "result"]
+                },
+                {
+                  "properties": {
+                    "tool": { "const": "region_digest" },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "region": { "$ref": "#/$defs/region" },
+                        "epoch": { "$ref": "#/$defs/epoch" },
+                        "summary": { "type": "string" },
+                        "hotspots": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "position": {
+                                "type": "object",
+                                "properties": {
+                                  "x": { "type": "integer", "minimum": 0 },
+                                  "y": { "type": "integer", "minimum": 0 }
+                                },
+                                "required": ["x", "y"],
+                                "additionalProperties": false
+                              },
+                              "intensity": { "type": "integer", "minimum": 0 }
+                            },
+                            "required": ["position", "intensity"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["region", "epoch"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["tool", "result"]
+                },
+                {
+                  "properties": {
+                    "tool": { "const": "get_code" },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "team": { "$ref": "#/$defs/team" },
+                        "module": { "type": "string", "minLength": 1 },
+                        "epoch": { "$ref": "#/$defs/epoch" },
+                        "source": { "type": "string" }
+                      },
+                      "required": ["team", "module", "epoch", "source"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["tool", "result"]
+                },
+                {
+                  "properties": {
+                    "tool": { "const": "get_chat" },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "team": { "$ref": "#/$defs/team" },
+                        "messages": {
+                          "type": "array",
+                          "items": { "$ref": "#/$defs/chat_message" }
+                        }
+                      },
+                      "required": ["team", "messages"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["tool", "result"]
+                },
+                {
+                  "properties": {
+                    "tool": { "const": "get_scoreboard" },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "epoch": { "$ref": "#/$defs/epoch" },
+                        "teams": {
+                          "type": "array",
+                          "items": { "$ref": "#/$defs/score_entry" },
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      },
+                      "required": ["teams"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["tool", "result"]
+                },
+                {
+                  "properties": {
+                    "tool": { "const": "subscribe" },
+                    "result": {
+                      "type": "object",
+                      "properties": {
+                        "stream": { "$ref": "#/$defs/stream" },
+                        "subscription_id": { "type": "string", "minLength": 1 }
+                      },
+                      "required": ["stream", "subscription_id"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["tool", "result"]
+                }
+              ],
+              "required": ["ok"]
+            },
+            {
+              "properties": { "ok": { "const": false } },
+              "required": ["ok", "error"]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
