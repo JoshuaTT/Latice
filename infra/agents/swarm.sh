@@ -13,6 +13,8 @@
 #   up [names]       Start agents and send each its role prompt
 #   status           List sessions and whether each agent is mid-run
 #   nudge [names]    Send the "continue" prompt to agents that aren't mid-run
+#                    (prompts/nudge-<role>.md if it exists, else prompts/nudge.md)
+#   tell <name> <message...>   Send one agent a one-off message (or @file)
 #   watch [minutes]  Nudge every N minutes (default 20) until Ctrl-C
 #   attach <name>    Talk to one agent interactively (Ctrl-D detaches)
 #   logs <name>      Show an agent's history
@@ -634,6 +636,35 @@ cmd_status() {
   fi
 }
 
+# Role-specific nudge if there is one (prompts/nudge-coordinator.md), else the
+# shared prompts/nudge.md.
+nudge_file() {
+  local f; f="$HERE/prompts/nudge-$(agent_field "$1" 2).md"
+  if [[ -f "$f" ]]; then echo "$f"; else echo "$HERE/prompts/nudge.md"; fi
+}
+
+cmd_tell() {
+  [[ $# -ge 2 ]] || die "usage: swarm.sh tell <name> <message...> | swarm.sh tell <name> @file"
+  local name="$1"; shift
+  agent_line "$name" >/dev/null
+  need_tools_for "$name"; need_creds
+  mkdir -p "$STATE_DIR"
+  local msg="$STATE_DIR/$name.tell.md"
+  if [[ $# -eq 1 && "$1" == @* ]]; then
+    local src="${1#@}"; [[ -f "$src" ]] || die "no such file: $src"
+    cp "$src" "$msg"
+  else
+    printf '%s\n' "$*" >"$msg"
+  fi
+  if ! is_busy "$name" && ! agent_exists "$name"; then
+    die "$name isn't started (./swarm.sh up $name)"
+  fi
+  if is_busy "$name"; then
+    die "$name is mid-run; try again when ./swarm.sh status shows it idle"
+  fi
+  send_prompt "$name" "$msg"
+}
+
 cmd_nudge() {
   local names name
   names="$(selected_names "$@")"
@@ -645,7 +676,7 @@ cmd_nudge() {
       echo "[$name] not started (start it with: ./swarm.sh up $name)"
       continue
     fi
-    send_prompt "$name" "$HERE/prompts/nudge.md"
+    send_prompt "$name" "$(nudge_file "$name")"
   done
 }
 
@@ -758,13 +789,14 @@ main() {
     up)      cmd_up "$@" ;;
     status)  cmd_status ;;
     nudge)   cmd_nudge "$@" ;;
+    tell)    cmd_tell "$@" ;;
     watch)   cmd_watch "$@" ;;
     attach)  cmd_attach "$@" ;;
     logs)    cmd_logs "$@" ;;
     pause)   cmd_each pause "$@" ;;
     resume)  cmd_each resume "$@" ;;
     down)    cmd_down "$@" ;;
-    ""|-h|--help|help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//' ;;
+    ""|-h|--help|help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
     *) die "unknown command '$cmd' (try: swarm.sh help)" ;;
   esac
 }
