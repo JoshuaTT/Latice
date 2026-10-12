@@ -50,6 +50,9 @@ jobs:
 
   needs-human:
     # Labels PRs that touch code-owned paths, so they're easy to find for review.
+    # It only ever adds `needs-human`: the label can also be added by hand or by
+    # the coordinator to escalate a PR, and a later push must not undo that.
+    # The required `human-gate` check (human-gate.yml) enforces the review.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
@@ -64,7 +67,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
-          gh label create needs-human  --repo "$REPO" --color D93F0B --description "Touches code-owned paths; needs human approval" --force
+          gh label create needs-human  --repo "$REPO" --color D93F0B --description "Needs human approval before merging" --force
           gh label create spec-change  --repo "$REPO" --color 5319E7 --description "Changes the spec" --force
 
           files=$(gh pr diff "$PR" --repo "$REPO" --name-only)
@@ -79,8 +82,7 @@ jobs:
             case "$f" in spec/*) spec=true;; esac
           done <<<"$files"
 
-          if $human; then gh pr edit "$PR" --repo "$REPO" --add-label needs-human
-          else gh pr edit "$PR" --repo "$REPO" --remove-label needs-human || true; fi
+          if $human; then gh pr edit "$PR" --repo "$REPO" --add-label needs-human; fi
           if $spec;  then gh pr edit "$PR" --repo "$REPO" --add-label spec-change
           else gh pr edit "$PR" --repo "$REPO" --remove-label spec-change || true; fi
 

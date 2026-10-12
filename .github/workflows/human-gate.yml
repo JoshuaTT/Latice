@@ -1,0 +1,97 @@
+# Required check `human-gate` (see .github/rulesets/main-protection.json).
+#
+# Passes immediately unless the PR needs a human, which is when either:
+#   - it carries the `needs-human` label (added automatically for code-owned
+#     paths by pr-hygiene, or by hand / by the coordinator to escalate), or
+#   - it changes a path listed in .github/CODEOWNERS.
+# The path check means removing the label can't skip the gate.
+#
+# When a human is needed, the check passes once a code owner has approved the
+# PR's latest commit. Agent PRs are authored with the owner's own token, so
+# GitHub won't let the owner approve them; merge those with the admin bypass
+# instead (the ruleset lets admins merge past failing checks).
+name: Human gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: human-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  human-gate:
+    runs-on: ubuntu-latest
+    steps:
+      # CODEOWNERS comes from the base branch, so a PR can't loosen its own gate.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Decide whether a human must approve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          reasons=()
+
+          labels="$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name')"
+          if grep -qx 'needs-human' <<<"$labels"; then
+            reasons+=("labeled needs-human")
+          fi
+
+          owned="$(grep -vE '^[[:space:]]*(#|$)' .github/CODEOWNERS | awk '{print $1}' | sed 's#^/##')"
+          files="$(gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename')"
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            for p in $owned; do
+              case "$f" in "$p"*) reasons+=("changes code-owned path $f"); break;; esac
+            done
+          done <<<"$files"
+
+          if [ ${#reasons[@]} -eq 0 ]; then
+            echo "No human review needed: not labeled needs-human and no code-owned paths changed."
+            echo "### human-gate: no human review needed" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          printf 'Human review needed:\n'; printf '  - %s\n' "${reasons[@]}"
+
+          # Code owners: individual @handles in CODEOWNERS (teams are ignored).
+          owners="$(grep -vE '^[[:space:]]*(#|$)' .github/CODEOWNERS \
+                    | grep -oE '@[A-Za-z0-9-]+(/[A-Za-z0-9_.-]+)?' | grep -v / | tr -d @ | sort -u)"
+
+          # Each reviewer's latest decisive review, approving this exact commit.
+          approvers="$(gh api "repos/$REPO/pulls/$PR/reviews?per_page=100" --jq '
+            [.[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED" or .state == "DISMISSED")]
+            | group_by(.user.login) | map(last)
+            | .[] | select(.state == "APPROVED" and .commit_id == env.HEAD_SHA) | .user.login')"
+
+          for a in $approvers; do
+            if grep -qx -- "$a" <<<"$owners"; then
+              echo "Approved by code owner @$a on $HEAD_SHA."
+              echo "### human-gate: approved by @$a" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          done
+
+          # shellcheck disable=SC2086  # $owners is a word list on purpose
+          {
+            echo "### human-gate: waiting for a human"
+            printf -- '- %s\n' "${reasons[@]}"
+            echo
+            echo "Needs an approval from a code owner ($(printf '@%s ' $owners)) on the latest commit,"
+            echo "or an admin bypass merge (agent PRs authored with the owner's token can't be approved by the owner)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Needs human approval: ${reasons[*]}"
+          exit 1
