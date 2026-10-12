@@ -128,6 +128,14 @@ impl Scheduler {
         })
     }
 
+    /// Triggers waiting to be delivered next tick: ascending target id, then
+    /// emission order (the order the state hash needs).
+    pub fn pending_triggers(&self) -> impl Iterator<Item = (EntityId, &Trigger)> {
+        self.pending
+            .iter()
+            .flat_map(|(&id, list)| list.iter().map(move |t| (id, t)))
+    }
+
     /// Attaches the program that runs `id`'s code.
     pub fn set_program(&mut self, id: EntityId, program: Box<dyn DroneProgram>) {
         self.programs.insert(id, program);

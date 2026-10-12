@@ -10,9 +10,9 @@ use sha2::{Digest, Sha256};
 use crate::error::EngineError;
 use crate::rng::{MatchRng, StreamId};
 use crate::ruleset::Ruleset;
-use crate::tick::{DroneProgram, EngineOptions, NoopResolver, Resolver, Scheduler};
+use crate::tick::{DroneProgram, EngineOptions, NoopResolver, Resolver, Scheduler, Trigger};
 use crate::world::grid::Team;
-use crate::world::hash::{Extras, Phase};
+use crate::world::hash::{Extras, HandlerKind, PendingHandler, Phase};
 use crate::world::{EntityId, World};
 
 /// An event as seen by a sink. Placeholder until #59 adds the per-type
@@ -181,13 +181,33 @@ impl Match {
                 .map(|m| (m.name.clone(), Sha256::digest(m.source.as_bytes()).into()))
                 .collect()
         });
+        // `on_radio` is not a handler event in the hash: it is derived from the
+        // radio queue (state-hash.md section 1).
+        let handlers = self
+            .scheduler
+            .pending_triggers()
+            .filter_map(|(target, t)| match t {
+                Trigger::OnHit { attacker } => Some((target, HandlerKind::OnHit, *attacker)),
+                Trigger::OnHacked { attacker } => Some((target, HandlerKind::OnHacked, *attacker)),
+                Trigger::OnRadio { .. } => None,
+            })
+            .map(|(target, handler, attacker)| PendingHandler {
+                target,
+                handler,
+                attacker,
+            })
+            .collect();
         let extras = Extras {
             seed: self.seed,
             phase: self.phase,
             libraries,
+            handlers,
             rng: self.rng.iter().map(|(s, r)| (*s, r.state())).collect(),
-            // TODO: event seq, blackboards, radio and handler queues, drone
-            // RNG streams, once the systems that own them land.
+            // Not yet hashed, each owed by the issue that adds the state:
+            // TODO(#59): next event `seq`
+            // TODO(#103): pending radio queue
+            // TODO(#56): per-drone RNG streams
+            // TODO(#56): team blackboards (`team.board`)
             ..Extras::default()
         };
         self.world.state_hash(&extras)
@@ -434,6 +454,82 @@ mod tests {
         assert_eq!(m.deployment(Team::A).unwrap().library[0].name, "alpha");
         assert_eq!(m.deployment(Team::B).unwrap().library[0].name, "bravo");
         assert_eq!(m.epoch(), 3);
+    }
+
+    /// Emits one `on_hit` on its first tick, or nothing.
+    struct HitOnce {
+        emit: bool,
+        target: EntityId,
+    }
+
+    impl Resolver for HitOnce {
+        fn resolve(
+            &mut self,
+            _: &mut World,
+            _: &[(EntityId, crate::tick::Act)],
+        ) -> Vec<(EntityId, Trigger)> {
+            if !std::mem::take(&mut self.emit) {
+                return Vec::new();
+            }
+            vec![(
+                self.target,
+                Trigger::OnHit {
+                    attacker: EntityId(7),
+                },
+            )]
+        }
+    }
+
+    #[test]
+    fn pending_on_hit_changes_the_state_hash_but_pending_on_radio_does_not() {
+        let hash_after_one_tick = |emit: Option<Trigger>| {
+            let r = ruleset();
+            let mut world = World::new(64, &r).unwrap();
+            let target = world.add_drone(Team::A, Pos { x: 1, y: 1 }, "m").unwrap();
+            let resolver: Box<dyn Resolver + Send> = match emit {
+                Some(Trigger::OnHit { .. }) => Box::new(HitOnce { emit: true, target }),
+                Some(_) => Box::new(RadioOnce { emit: true, target }),
+                None => Box::new(NoopResolver),
+            };
+            let mut m =
+                Match::from_parts(world, Vec::new(), resolver, r, 7, EngineOptions::default())
+                    .unwrap();
+            m.step_tick(&mut NullSink).unwrap();
+            m.state_hash()
+        };
+        let none = hash_after_one_tick(None);
+        let hit = hash_after_one_tick(Some(Trigger::OnHit {
+            attacker: EntityId(7),
+        }));
+        let radio = hash_after_one_tick(Some(Trigger::OnRadio {
+            content: String::new(),
+        }));
+        assert_ne!(hit, none);
+        // Radio is hashed through the radio queue (#103), not as a handler.
+        assert_eq!(radio, none);
+    }
+
+    struct RadioOnce {
+        emit: bool,
+        target: EntityId,
+    }
+
+    impl Resolver for RadioOnce {
+        fn resolve(
+            &mut self,
+            _: &mut World,
+            _: &[(EntityId, crate::tick::Act)],
+        ) -> Vec<(EntityId, Trigger)> {
+            if !std::mem::take(&mut self.emit) {
+                return Vec::new();
+            }
+            vec![(
+                self.target,
+                Trigger::OnRadio {
+                    content: String::new(),
+                },
+            )]
+        }
     }
 
     #[test]
