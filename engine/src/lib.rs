@@ -8,7 +8,7 @@ pub mod ruleset;
 
 /// World model: chunked grid, cells, terrain, ownership, integrity, marks,
 /// structures, drones, Cores, Relics.
-pub mod world {}
+pub mod world;
 
 /// Tick scheduler: think phase (parallel) and resolve phase (serial) each tick.
 pub mod tick {}
