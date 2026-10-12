@@ -1,0 +1,20 @@
+{
+  "library": ["scout", "warden", "harvester", "expansion_lead"],
+  "spawn": [
+    {
+      "module": "expansion_lead",
+      "forge": "F_home_west",
+      "offset": [1, 2],
+      "args": { "well": [31, 12], "harvesters": 3 }
+    },
+    {
+      "module": "scout",
+      "forge": "F_home_east",
+      "args": { "dir": "N" }
+    }
+  ],
+  "board": {
+    "init": { "home": { "x": 6, "y": 6 } },
+    "reserved": ["threat", "home"]
+  }
+}

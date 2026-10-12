@@ -1,0 +1,101 @@
+# Default LATTICE ruleset
+# Parameters from game-design.md §14.2, §4.0, §6, and §13
+# Version: v1.0.0
+
+version = "1.0.0"
+
+# Match timing (game-design §14.2, §3)
+[match]
+epochs_per_match = 4          # game-design §14.2
+beats_per_council = 16        # game-design §14.2
+beat_length_seconds = 45      # game-design §14.2, §3.3
+charge_bank_cap = 3           # game-design §14.2
+
+# Muster phase tokens (game-design §14.2, §8)
+[muster]
+opening_tokens = 500           # game-design §14.2
+reply_tokens = 200             # game-design §14.2
+
+# Bandwidth limits (game-design §14.2, §9.3)
+[bandwidth]
+personal_tokens = 800         # game-design §14.2
+shared_pool_tokens = 3000     # game-design §14.2
+
+# Quota and economy (game-design §14.2, §9.4)
+[quota]
+team_complexity_nodes = 2400  # game-design §14.2
+transfer_loss_percent = 20     # game-design §14.2
+sim_credits = 15              # game-design §14.2
+
+# Board parameters (game-design §14.2, §4.3, §4.4)
+[board]
+side_length = 64              # game-design §14.2 (default)
+core_hp = 200                 # game-design §14.2, §4.4
+core_firewall = 40            # game-design §14.2, §4.4
+drone_hp = 10                 # game-design §14.2, §5
+drone_firewall = 3            # game-design §14.2, §5
+
+# Board-size scaling parameters (game-design §4.0)
+# s = side_length / 64, ranges from 1 to 16
+[scaling]
+# Clash length: 2000 * sqrt(s) ticks
+clash_length_ticks = { base = 2000, formula = "base * sqrt(s)" }
+clash_length_base = 2000      # game-design §14.2 exploration range
+
+# Drone cap: 60 * sqrt(s)
+drone_cap = { base = 60, formula = "base * sqrt(s)" }
+drone_cap_base = 60           # game-design §14.2
+
+# Wells: 6 * s
+wells = { base = 6, formula = "base * s" }
+
+# Neutral Forges: 2 * s
+neutral_forges = { base = 2, formula = "base * s" }
+
+# Relics: 2 + log2(s)
+relics = { base = 2, formula = "base + log2(s)" }
+
+# Starting energy: 400 * sqrt(s)
+starting_energy = { base = 400, formula = "base * sqrt(s)" }
+starting_energy_base = 400    # game-design §14.2
+
+# Intel shards: constant 5 regions
+intel_shards = 5              # game-design §4.0
+
+# Fuel per tick
+fuel_per_tick = 1000            # game-design §14.2
+
+# Score weights (game-design §13)
+[score_weights]
+owned_cells = 1                # game-design §13
+wells_held = 15               # game-design §13
+relics_held = 60              # game-design §13
+remaining_core_hp = 1         # game-design §13
+live_drones = 3               # game-design §13
+
+# Structural parameters (system-design §6.3, game-design §9.5)
+# These cannot be auto-tuned and require human approval
+[structural]
+team_size = 5                 # game-design §9.5
+quorum = 3                    # game-design §9.5 (3 of 5)
+win_conditions = [
+  "core_destroyed",
+  "core_captured",
+  "score_after_final_epoch"
+]                             # game-design §13
+
+# Mutator pool (game-design §6)
+[mutators]
+pool = [
+  "Fog",
+  "Costly Spawn",
+  "Quiet Radio",
+  "Small Board",
+  "Glass Core",
+  "Plague",
+  "Thin Air",
+  "Banned Call",
+  "Drift",
+  "Long Night"
+]                             # game-design §6
+draw_count = 2                # game-design §6 (2-3)

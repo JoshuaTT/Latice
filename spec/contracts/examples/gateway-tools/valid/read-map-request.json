@@ -1,0 +1,7 @@
+{
+  "tool": "read_map",
+  "args": {
+    "region": { "x0": 0, "y0": 0, "x1": 12, "y1": 12 },
+    "digest": true
+  }
+}
