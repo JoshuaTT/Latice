@@ -11,7 +11,7 @@ pub mod ruleset;
 pub mod world;
 
 /// Tick scheduler: think phase (parallel) and resolve phase (serial) each tick.
-pub mod tick {}
+pub mod tick;
 
 /// LatticePy virtual machine: parse, validate, compile to bytecode, execute
 /// with fuel metering and memory caps.
