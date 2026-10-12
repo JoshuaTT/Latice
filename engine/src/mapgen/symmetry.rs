@@ -2,47 +2,68 @@
 //!
 //! These utilities ensure maps are provably symmetric, satisfying game-design
 //! pillar 6: "Maps are symmetric; matches are played as side-swapped pairs".
+//! Defined per spec/mapgen.md §2.
 
 use crate::world::{Entity, EntityId, Team, World};
 use crate::world::grid::Pos;
 
 use crate::world::grid::{Grid, Terrain, Cell};
 
-/// Symmetry transforms the map generator may apply (game-design §6).
+/// Symmetry transforms the map generator may apply (mapgen.md §2).
+/// Only two symmetries are allowed:
+/// - `Mirror`: T(x, y) = (side-1-x, y), Team A holds west half (x < side/2)
+/// - `Rotational`: T(x, y) = (side-1-x, side-1-y), Team A holds north half (y < side/2)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Symmetry {
-    /// 180-degree rotation around the board center.
-    Rotate180,
-    /// Mirror across the vertical center line (x -> side - 1 - x).
-    MirrorX,
-    /// Mirror across the horizontal center line (y -> side - 1 - y).
+    /// Mirror across vertical center line. Team A holds west half.
     #[default]
-    MirrorY,
+    Mirror,
+    /// 180-degree rotation. Team A holds north half.
+    Rotational,
 }
 
 impl Symmetry {
-    /// All symmetry variants.
+    /// All symmetry variants (mapgen.md §2).
     pub fn all() -> &'static [Symmetry] {
-        &[Symmetry::Rotate180, Symmetry::MirrorX, Symmetry::MirrorY]
+        &[Symmetry::Mirror, Symmetry::Rotational]
+    }
+}
+
+/// Returns the team that owns the half of the board containing this position.
+/// Used by generators to know which half to place on (mapgen.md §2).
+pub fn team_half(sym: Symmetry, pos: Pos, side: u32) -> Team {
+    match sym {
+        Symmetry::Mirror => {
+            // Team A holds west half (x < side/2)
+            if pos.x < side / 2 {
+                Team::A
+            } else {
+                Team::B
+            }
+        }
+        Symmetry::Rotational => {
+            // Team A holds north half (y < side/2)
+            if pos.y < side / 2 {
+                Team::A
+            } else {
+                Team::B
+            }
+        }
     }
 }
 
 /// Returns the partner position: the cell that corresponds to `pos` for the
-/// opposing team under this symmetry. An involution:
+/// opposing team under this symmetry (mapgen.md §2). An involution:
 /// `partner(partner(p)) == p`.
 pub fn partner(sym: Symmetry, pos: Pos, side: u32) -> Pos {
     let s = side - 1;
     match sym {
-        Symmetry::Rotate180 => Pos {
-            x: (s - pos.x),
-            y: (s - pos.y),
-        },
-        Symmetry::MirrorX => Pos {
+        Symmetry::Mirror => Pos {
             x: (s - pos.x),
             y: pos.y,
         },
-        Symmetry::MirrorY => Pos {
-            x: pos.x,
+        Symmetry::Rotational => Pos {
+            x: (s - pos.x),
             y: (s - pos.y),
         },
     }
@@ -215,9 +236,8 @@ mod tests {
 
     proptest::proptest! {
         #[test]
-        fn partner_is_involution(sym in proptest::strategy::Just(Symmetry::Rotate180)
-            .or(proptest::strategy::Just(Symmetry::MirrorX))
-            .or(proptest::strategy::Just(Symmetry::MirrorY))) {
+        fn partner_is_involution(sym in proptest::strategy::Just(Symmetry::Mirror)
+            .or(proptest::strategy::Just(Symmetry::Rotational))) {
             for side in [64u32, 65, 128, 256, 1023, 1024] {
                 for x in 0..side {
                     for y in 0..side {
@@ -231,9 +251,8 @@ mod tests {
         }
 
         #[test]
-        fn partner_stays_in_bounds(sym in proptest::strategy::Just(Symmetry::Rotate180)
-            .or(proptest::strategy::Just(Symmetry::MirrorX))
-            .or(proptest::strategy::Just(Symmetry::MirrorY))) {
+        fn partner_stays_in_bounds(sym in proptest::strategy::Just(Symmetry::Mirror)
+            .or(proptest::strategy::Just(Symmetry::Rotational))) {
             for side in [64u32, 65, 128, 1024] {
                 for x in 0..side {
                     for y in 0..side {
@@ -247,22 +266,42 @@ mod tests {
     }
 
     #[test]
+    fn team_half_mirror() {
+        // Mirror: Team A holds west half (x < side/2)
+        assert_eq!(team_half(Symmetry::Mirror, p(0, 0), 64), Team::A);
+        assert_eq!(team_half(Symmetry::Mirror, p(31, 0), 64), Team::A);
+        assert_eq!(team_half(Symmetry::Mirror, p(32, 0), 64), Team::B);
+        assert_eq!(team_half(Symmetry::Mirror, p(63, 0), 64), Team::B);
+    }
+
+    #[test]
+    fn team_half_rotational() {
+        // Rotational: Team A holds north half (y < side/2)
+        assert_eq!(team_half(Symmetry::Rotational, p(0, 0), 64), Team::A);
+        assert_eq!(team_half(Symmetry::Rotational, p(0, 31), 64), Team::A);
+        assert_eq!(team_half(Symmetry::Rotational, p(0, 32), 64), Team::B);
+        assert_eq!(team_half(Symmetry::Rotational, p(0, 63), 64), Team::B);
+    }
+
+    #[test]
+    fn team_half_odd_board() {
+        // On odd board, center goes to B (round up)
+        assert_eq!(team_half(Symmetry::Mirror, p(32, 0), 65), Team::B);
+        assert_eq!(team_half(Symmetry::Rotational, p(0, 32), 65), Team::B);
+    }
+
+    #[test]
     fn is_self_partner_center_on_odd() {
         // 65x65 board has a true center cell.
         let center = p(32, 32);
-        assert!(is_self_partner(Symmetry::Rotate180, center, 65));
-        assert!(is_self_partner(Symmetry::MirrorX, center, 65));
-        assert!(is_self_partner(Symmetry::MirrorY, center, 65));
+        assert!(is_self_partner(Symmetry::Mirror, center, 65));
+        assert!(is_self_partner(Symmetry::Rotational, center, 65));
     }
 
     #[test]
     fn is_self_partner_axis_on_mirror() {
-        // MirrorX: column 32 on 65-wide board.
-        assert!(is_self_partner(Symmetry::MirrorX, p(32, 0), 65));
-        // MirrorY: row 32 on 65-tall board.
-        assert!(is_self_partner(Symmetry::MirrorY, p(0, 32), 65));
-        // Rotate180 has no self-partners on odd boards (all cells rotate away).
-        assert!(!is_self_partner(Symmetry::Rotate180, p(32, 32), 65));
+        // Mirror: column 32 on 65-wide board (center column).
+        assert!(is_self_partner(Symmetry::Mirror, p(32, 0), 65));
     }
 
     #[test]
@@ -280,9 +319,10 @@ mod tests {
         let r = ruleset();
         let mut w = World::new(64, &r).unwrap();
 
-        // Place mirrored entities.
+        // Place mirrored entities under Mirror symmetry.
+        // Partner of (10,10) under Mirror on 64-wide: (53, 10)
         let _d_a = w.add_drone(Team::A, p(10, 10), "bot").unwrap();
-        let _d_b = w.add_drone(Team::B, p(53, 53), "bot").unwrap();
+        let _d_b = w.add_drone(Team::B, p(53, 10), "bot").unwrap();
 
         // Set mirrored cell ownership.
         w.grid.set(p(10, 10), Cell {
@@ -290,14 +330,14 @@ mod tests {
             owner: Team::A,
             integrity: 2,
         }).unwrap();
-        w.grid.set(p(53, 53), Cell {
+        w.grid.set(p(53, 10), Cell {
             terrain: Terrain::Open,
             owner: Team::B,
             integrity: 2,
         }).unwrap();
 
-        // Should pass symmetry check for Rotate180 (the board is symmetric).
-        assert!(symmetry_check(&w, Symmetry::Rotate180).is_ok(), "{:?}", symmetry_check(&w, Symmetry::Rotate180));
+        // Should pass symmetry check for Mirror.
+        assert!(symmetry_check(&w, Symmetry::Mirror).is_ok(), "{:?}", symmetry_check(&w, Symmetry::Mirror));
     }
 
     #[test]
@@ -308,7 +348,7 @@ mod tests {
         // Place only one drone, no partner.
         w.add_drone(Team::A, p(10, 10), "bot").unwrap();
 
-        let result = symmetry_check(&w, Symmetry::Rotate180);
+        let result = symmetry_check(&w, Symmetry::Mirror);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no partner entity"));
     }
@@ -321,7 +361,7 @@ mod tests {
         // Place Core for team A at (5,5) - its 3x3 covers (4-6, 4-6).
         let _core_a = w.add_core(Team::A, p(5, 5)).unwrap();
 
-        // Partner of (5,5) under MirrorX on 64-wide: (64-1-5, 5) = (58, 5).
+        // Partner of (5,5) under Mirror on 64-wide: (64-1-5, 5) = (58, 5).
         let _core_b = w.add_core(Team::B, p(58, 5)).unwrap();
 
         // Set mirrored ownership.
@@ -340,6 +380,6 @@ mod tests {
             }
         }
 
-        assert!(symmetry_check(&w, Symmetry::MirrorX).is_ok(), "{:?}", symmetry_check(&w, Symmetry::MirrorX));
+        assert!(symmetry_check(&w, Symmetry::Mirror).is_ok(), "{:?}", symmetry_check(&w, Symmetry::Mirror));
     }
 }
