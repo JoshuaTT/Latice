@@ -26,9 +26,7 @@ pub mod tick;
 /// with fuel metering and memory caps.
 pub mod vm {}
 
-/// Code checker and quota counter: validates the Python subset, counts AST
-/// nodes, checks the module interface, gives lint messages.
-pub mod checker {}
+pub mod checker;
 
 /// Game library (`lattice`): sensing, movement, pathfinding, economy, combat,
 /// hacking, building, comms, high-level behaviors.
