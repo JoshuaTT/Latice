@@ -19,7 +19,8 @@
     "core_hp": 200,
     "core_firewall": 40,
     "drone_hp": 10,
-    "drone_firewall": 3
+    "drone_firewall": 3,
+    "core_size": 3
   },
   "scaling": {
     "clash_length_ticks": { "base": 2000, "formula": "base * sqrt(s)" },
@@ -49,5 +50,38 @@
   "mutators": {
     "pool": ["Fog"],
     "draw_count": 2
-  }
+  },
+  "acts": {
+    "move_energy_cost": 0,
+    "claim_energy_cost": 1,
+    "harvest_energy_cost": 0,
+    "attack_energy_cost": 2,
+    "hack_energy_cost": 3,
+    "patch_energy_cost": 1,
+    "build_energy_cost": 0,
+    "spawn_energy_cost": 20,
+    "repair_energy_cost": 2,
+    "deposit_energy_cost": 0,
+    "withdraw_energy_cost": 0,
+    "attack_damage": 3,
+    "hack_firewall_reduction": 1,
+    "patch_firewall_restore": 2,
+    "repair_hp_restore": 2,
+    "harvest_yield": 5
+  },
+  "drone": { "carry_cap": 20 },
+  "economy": { "well_yield_per_tick": 2, "drone_upkeep_per_tick": 0 },
+  "structures": {
+    "barrier": { "build_cost": 8, "hp": 20, "firewall": 0, "effect_radius": 0 },
+    "relay": { "build_cost": 12, "hp": 10, "firewall": 0, "effect_radius": 6 },
+    "battery": { "build_cost": 15, "hp": 10, "firewall": 0, "effect_radius": 0, "capacity": 100 },
+    "sentinel": { "build_cost": 20, "hp": 10, "firewall": 3, "effect_radius": 1, "fuel_per_tick": 30 },
+    "firewall_node": { "build_cost": 15, "hp": 10, "firewall": 0, "effect_radius": 3, "firewall_bonus": 2 },
+    "forge": { "build_cost": 50, "hp": 15, "firewall": 0, "effect_radius": 0 }
+  },
+  "cell": { "default_integrity": 1, "max_integrity": 3, "claimable_terrains": ["open", "well", "relic", "forge", "core"], "walkable_terrains": ["open", "well", "relic", "forge", "core"] },
+  "relics": { "hp": 30, "hackable": false, "repairable": false },
+  "sensing": { "default_radius": 5, "max_radius": 10, "relay_extension": 3 },
+  "marks": { "max_ttl": 500, "value_size_bytes": 64, "max_per_cell": 4 },
+  "hack": { "converted_firewall": 2 }
 }

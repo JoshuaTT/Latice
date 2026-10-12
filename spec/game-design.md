@@ -56,6 +56,8 @@ BRIEFING ─▶ MUSTER ─▶ EPOCH 1 ─▶ EPOCH 2 ─▶ EPOCH 3 ─▶ EPOCH
 
 **Win condition:** destroy or capture the enemy Core. Otherwise the higher score after Epoch 4 wins (§13).
 
+For per-tick act costs, ranges, amounts, and conflict rules, see [Clash Mechanics](mechanics.md).
+
 Both teams' Councils run at the same time on the same clock, and clashes start together.
 
 ---
@@ -130,7 +132,7 @@ Two resources create the core economic tension:
 
 ### 4.3 Structures
 
-Drones build structures on cells they're next to.
+Drones build structures on cells they're next to. Full costs and stats are in [mechanics §5](mechanics.md#5-structures).
 
 | Structure | Effect |
 |---|---|

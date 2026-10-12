@@ -99,3 +99,100 @@ pool = [
   "Long Night"
 ]                             # game-design §6
 draw_count = 2                # game-design §6 (2-3)
+
+# Per-act energy costs and mechanics (mechanics §1, §2)
+[acts]
+move_energy_cost = 0          # mechanics §1; no energy cost
+claim_energy_cost = 1         # mechanics §1
+harvest_energy_cost = 0       # mechanics §1
+attack_energy_cost = 2        # mechanics §1
+hack_energy_cost = 3          # mechanics §1
+patch_energy_cost = 1         # mechanics §1
+build_energy_cost = 0         # mechanics §1; per-structure cost applies on top
+spawn_energy_cost = 20        # mechanics §4
+repair_energy_cost = 2        # mechanics §1
+deposit_energy_cost = 0       # mechanics §1
+withdraw_energy_cost = 0      # mechanics §1
+attack_damage = 3             # mechanics §2
+hack_firewall_reduction = 1   # mechanics §2
+patch_firewall_restore = 2    # mechanics §2
+repair_hp_restore = 2         # mechanics §2
+harvest_yield = 5             # mechanics §2
+
+# Drone parameters
+[drone]
+carry_cap = 20                # mechanics §2; max energy a drone carries
+
+# Economy (mechanics §3)
+[economy]
+well_yield_per_tick = 2       # mechanics §2; passive energy per tick per Well
+drone_upkeep_per_tick = 0     # mechanics §3; v1 has no upkeep
+
+# Structure build costs and stats (mechanics §5)
+[structures.barrier]
+build_cost = 8                # mechanics §5
+hp = 20                       # game-design §4.3
+firewall = 0                  # mechanics §5
+effect_radius = 0             # mechanics §5
+
+[structures.relay]
+build_cost = 12               # mechanics §5
+hp = 10                       # mechanics §5
+firewall = 0                  # mechanics §5
+effect_radius = 6             # mechanics §9
+
+[structures.battery]
+build_cost = 15               # mechanics §5
+hp = 10                       # mechanics §5
+firewall = 0                  # mechanics §5
+effect_radius = 0             # mechanics §5
+capacity = 100                # mechanics §5; max energy stored
+
+[structures.sentinel]
+build_cost = 20               # mechanics §5
+hp = 10                       # mechanics §5
+firewall = 3                  # mechanics §5
+effect_radius = 1             # mechanics §5
+fuel_per_tick = 30            # mechanics §5
+
+[structures.firewall_node]
+build_cost = 15               # mechanics §5
+hp = 10                       # mechanics §5
+firewall = 0                  # mechanics §5
+effect_radius = 3             # game-design §4.3
+firewall_bonus = 2            # game-design §4.3
+
+[structures.forge]
+build_cost = 50               # mechanics §5
+hp = 15                       # mechanics §5
+firewall = 0                  # mechanics §5
+effect_radius = 0             # mechanics §5
+
+# Cell parameters (mechanics §6)
+[cell]
+default_integrity = 1         # mechanics §6
+max_integrity = 3             # mechanics §6
+claimable_terrains = ["open", "well", "relic", "forge", "core"]
+walkable_terrains = ["open", "well", "relic", "forge", "core"]
+
+# Relic parameters (mechanics §8)
+[relics]
+hp = 30                       # game-design §4.5
+hackable = false              # mechanics §8
+repairable = false            # mechanics §8
+
+# Sensing parameters (mechanics §9)
+[sensing]
+default_radius = 5            # mechanics §9
+max_radius = 10               # mechanics §9
+relay_extension = 3           # mechanics §9
+
+# Mark parameters (mechanics §10)
+[marks]
+max_ttl = 500                 # mechanics §10; ticks
+value_size_bytes = 64         # mechanics §10
+max_per_cell = 4              # mechanics §10
+
+# Hack mechanics (mechanics §11)
+[hack]
+converted_firewall = 2        # mechanics §11; firewall a captured drone starts with

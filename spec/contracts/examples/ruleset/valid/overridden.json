@@ -18,7 +18,8 @@
     "core_hp": 200,
     "core_firewall": 40,
     "drone_hp": 10,
-    "drone_firewall": 3
+    "drone_firewall": 3,
+    "core_size": 3
   },
   "scaling": {
     "clash_length_ticks": { "base": 3000, "formula": "base * sqrt(s)" },
@@ -48,5 +49,62 @@
   "mutators": {
     "pool": ["Fog", "Plague", "Long Night"],
     "draw_count": 3
+  },
+  "acts": {
+    "move_energy_cost": 1,
+    "claim_energy_cost": 2,
+    "harvest_energy_cost": 0,
+    "attack_energy_cost": 3,
+    "hack_energy_cost": 5,
+    "patch_energy_cost": 2,
+    "build_energy_cost": 1,
+    "spawn_energy_cost": 25,
+    "repair_energy_cost": 3,
+    "deposit_energy_cost": 0,
+    "withdraw_energy_cost": 0,
+    "attack_damage": 4,
+    "hack_firewall_reduction": 2,
+    "patch_firewall_restore": 3,
+    "repair_hp_restore": 3,
+    "harvest_yield": 8
+  },
+  "drone": {
+    "carry_cap": 25
+  },
+  "economy": {
+    "well_yield_per_tick": 3,
+    "drone_upkeep_per_tick": 0
+  },
+  "structures": {
+    "barrier": { "build_cost": 10, "hp": 25, "firewall": 0, "effect_radius": 0 },
+    "relay": { "build_cost": 15, "hp": 12, "firewall": 0, "effect_radius": 8 },
+    "battery": { "build_cost": 18, "hp": 12, "firewall": 0, "effect_radius": 0, "capacity": 150 },
+    "sentinel": { "build_cost": 25, "hp": 12, "firewall": 4, "effect_radius": 2, "fuel_per_tick": 40 },
+    "firewall_node": { "build_cost": 18, "hp": 12, "firewall": 0, "effect_radius": 4, "firewall_bonus": 3 },
+    "forge": { "build_cost": 60, "hp": 18, "firewall": 0, "effect_radius": 0 }
+  },
+  "cell": {
+    "default_integrity": 2,
+    "max_integrity": 3,
+    "claimable_terrains": ["open", "well", "relic", "forge", "core"],
+    "walkable_terrains": ["open", "well", "relic", "forge", "core"]
+  },
+  "relics": {
+    "hp": 40,
+    "hackable": false,
+    "repairable": false
+  },
+  "sensing": {
+    "default_radius": 4,
+    "max_radius": 8,
+    "relay_extension": 2
+  },
+  "marks": {
+    "max_ttl": 300,
+    "value_size_bytes": 128,
+    "max_per_cell": 6
+  },
+  "hack": {
+    "converted_firewall": 3
   }
 }

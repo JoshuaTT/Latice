@@ -58,7 +58,8 @@
         "core_hp": { "type": "integer", "default": 200 },
         "core_firewall": { "type": "integer", "default": 40 },
         "drone_hp": { "type": "integer", "default": 10 },
-        "drone_firewall": { "type": "integer", "default": 3 }
+        "drone_firewall": { "type": "integer", "default": 3 },
+        "core_size": { "type": "integer", "const": 3, "default": 3, "description": "Core is always 3×3 (game-design §4.4)." }
       },
       "required": ["side_length", "core_hp", "core_firewall", "drone_hp", "drone_firewall"]
     },
@@ -127,9 +128,120 @@
         "draw_count": { "type": "integer", "minimum": 2, "maximum": 3, "default": 2, "description": "A match draws 2–3 mutators (game-design §6)." }
       },
       "required": ["pool", "draw_count"]
+    },
+    "acts": {
+      "type": "object",
+      "description": "Act costs and amounts (mechanics §1, §2). All values are tuning parameters.",
+      "additionalProperties": false,
+      "properties": {
+        "move_energy_cost": { "type": "integer", "minimum": 0, "default": 0 },
+        "claim_energy_cost": { "type": "integer", "minimum": 0, "default": 1 },
+        "harvest_energy_cost": { "type": "integer", "minimum": 0, "default": 0 },
+        "attack_energy_cost": { "type": "integer", "minimum": 0, "default": 2 },
+        "hack_energy_cost": { "type": "integer", "minimum": 0, "default": 3 },
+        "patch_energy_cost": { "type": "integer", "minimum": 0, "default": 1 },
+        "build_energy_cost": { "type": "integer", "minimum": 0, "default": 0, "description": "Per-structure cost applies on top." },
+        "spawn_energy_cost": { "type": "integer", "minimum": 0, "default": 20 },
+        "repair_energy_cost": { "type": "integer", "minimum": 0, "default": 2 },
+        "deposit_energy_cost": { "type": "integer", "minimum": 0, "default": 0 },
+        "withdraw_energy_cost": { "type": "integer", "minimum": 0, "default": 0 },
+        "attack_damage": { "type": "integer", "minimum": 1, "default": 3, "description": "HP damage per attack act (mechanics §2)." },
+        "hack_firewall_reduction": { "type": "integer", "minimum": 1, "default": 1, "description": "Firewall reduced per hack act (mechanics §2)." },
+        "patch_firewall_restore": { "type": "integer", "minimum": 1, "default": 2, "description": "Firewall restored per patch act (mechanics §2)." },
+        "repair_hp_restore": { "type": "integer", "minimum": 1, "default": 2, "description": "HP restored per repair act (mechanics §2)." },
+        "harvest_yield": { "type": "integer", "minimum": 1, "default": 5, "description": "Energy collected per harvest act (mechanics §2)." }
+      },
+      "required": ["move_energy_cost", "claim_energy_cost", "harvest_energy_cost", "attack_energy_cost", "hack_energy_cost", "patch_energy_cost", "build_energy_cost", "spawn_energy_cost", "repair_energy_cost", "deposit_energy_cost", "withdraw_energy_cost", "attack_damage", "hack_firewall_reduction", "patch_firewall_restore", "repair_hp_restore", "harvest_yield"]
+    },
+    "drone": {
+      "type": "object",
+      "description": "Drone-specific parameters (mechanics §2). HP and firewall are in the board section.",
+      "additionalProperties": false,
+      "properties": {
+        "carry_cap": { "type": "integer", "minimum": 1, "default": 20 }
+      },
+      "required": ["carry_cap"]
+    },
+    "economy": {
+      "type": "object",
+      "description": "Economy parameters (mechanics §2, §3).",
+      "additionalProperties": false,
+      "properties": {
+        "well_yield_per_tick": { "type": "integer", "minimum": 0, "default": 2 },
+        "drone_upkeep_per_tick": { "type": "integer", "minimum": 0, "default": 0 }
+      },
+      "required": ["well_yield_per_tick", "drone_upkeep_per_tick"]
+    },
+    "structures": {
+      "type": "object",
+      "description": "Structure build costs and stats (mechanics §5).",
+      "additionalProperties": false,
+      "properties": {
+        "barrier": { "$ref": "#/$defs/structure_kind" },
+        "relay": { "$ref": "#/$defs/structure_with_radius" },
+        "battery": { "$ref": "#/$defs/structure_battery" },
+        "sentinel": { "$ref": "#/$defs/structure_sentinel" },
+        "firewall_node": { "$ref": "#/$defs/structure_firewall_node" },
+        "forge": { "$ref": "#/$defs/structure_kind" }
+      },
+      "required": ["barrier", "relay", "battery", "sentinel", "firewall_node", "forge"]
+    },
+    "cell": {
+      "type": "object",
+      "description": "Cell parameters (mechanics §6).",
+      "additionalProperties": false,
+      "properties": {
+        "default_integrity": { "type": "integer", "minimum": 1, "maximum": 3, "default": 1 },
+        "max_integrity": { "type": "integer", "minimum": 1, "maximum": 3, "default": 3 },
+        "claimable_terrains": { "type": "array", "items": { "enum": ["open", "wall", "well", "relic", "forge", "core"] }, "default": ["open", "well", "relic", "forge", "core"] },
+        "walkable_terrains": { "type": "array", "items": { "enum": ["open", "wall", "well", "relic", "forge", "core"] }, "default": ["open", "well", "relic", "forge", "core"] }
+      },
+      "required": ["default_integrity", "max_integrity", "claimable_terrains", "walkable_terrains"]
+    },
+    "relics": {
+      "type": "object",
+      "description": "Relic parameters (mechanics §8).",
+      "additionalProperties": false,
+      "properties": {
+        "hp": { "type": "integer", "minimum": 1, "default": 30 },
+        "hackable": { "type": "boolean", "default": false },
+        "repairable": { "type": "boolean", "default": false }
+      },
+      "required": ["hp", "hackable", "repairable"]
+    },
+    "sensing": {
+      "type": "object",
+      "description": "Sensing parameters (mechanics §9).",
+      "additionalProperties": false,
+      "properties": {
+        "default_radius": { "type": "integer", "minimum": 1, "default": 5 },
+        "max_radius": { "type": "integer", "minimum": 1, "default": 10 },
+        "relay_extension": { "type": "integer", "minimum": 0, "default": 3 }
+      },
+      "required": ["default_radius", "max_radius", "relay_extension"]
+    },
+    "marks": {
+      "type": "object",
+      "description": "Mark parameters (mechanics §10).",
+      "additionalProperties": false,
+      "properties": {
+        "max_ttl": { "type": "integer", "minimum": 1, "default": 500, "description": "Maximum time-to-live in ticks." },
+        "value_size_bytes": { "type": "integer", "minimum": 1, "default": 64 },
+        "max_per_cell": { "type": "integer", "minimum": 1, "default": 4 }
+      },
+      "required": ["max_ttl", "value_size_bytes", "max_per_cell"]
+    },
+    "hack": {
+      "type": "object",
+      "description": "Hack conversion mechanics (mechanics §11).",
+      "additionalProperties": false,
+      "properties": {
+        "converted_firewall": { "type": "integer", "minimum": 0, "default": 2, "description": "Firewall a captured drone starts with." }
+      },
+      "required": ["converted_firewall"]
     }
   },
-  "required": ["version", "match", "muster", "bandwidth", "quota", "board", "scaling", "score_weights", "structural", "mutators"],
+  "required": ["version", "match", "muster", "bandwidth", "quota", "board", "scaling", "score_weights", "structural", "mutators", "acts", "drone", "economy", "structures", "cell", "relics", "sensing", "marks", "hack"],
   "$defs": {
     "scaled": {
       "type": "object",
@@ -140,6 +252,69 @@
         "formula": { "type": "string", "enum": ["base * sqrt(s)", "base * s", "base + log2(s)"] }
       },
       "required": ["base", "formula"]
+    },
+    "structure_kind": {
+      "type": "object",
+      "description": "Base structure definition (mechanics §5).",
+      "additionalProperties": false,
+      "properties": {
+        "build_cost": { "type": "integer", "minimum": 0 },
+        "hp": { "type": "integer", "minimum": 0 },
+        "firewall": { "type": "integer", "minimum": 0, "default": 0 },
+        "effect_radius": { "type": "integer", "minimum": 0, "default": 0 }
+      },
+      "required": ["build_cost", "hp", "firewall", "effect_radius"]
+    },
+    "structure_with_radius": {
+      "type": "object",
+      "description": "Structure with mandatory effect radius (Relay, mechanics §5).",
+      "additionalProperties": false,
+      "properties": {
+        "build_cost": { "type": "integer", "minimum": 0 },
+        "hp": { "type": "integer", "minimum": 0 },
+        "firewall": { "type": "integer", "minimum": 0, "default": 0 },
+        "effect_radius": { "type": "integer", "minimum": 1, "default": 6 }
+      },
+      "required": ["build_cost", "hp", "firewall", "effect_radius"]
+    },
+    "structure_battery": {
+      "type": "object",
+      "description": "Battery structure (mechanics §5).",
+      "additionalProperties": false,
+      "properties": {
+        "build_cost": { "type": "integer", "minimum": 0 },
+        "hp": { "type": "integer", "minimum": 0 },
+        "firewall": { "type": "integer", "minimum": 0, "default": 0 },
+        "effect_radius": { "type": "integer", "minimum": 0, "default": 0 },
+        "capacity": { "type": "integer", "minimum": 1, "default": 100 }
+      },
+      "required": ["build_cost", "hp", "firewall", "effect_radius", "capacity"]
+    },
+    "structure_sentinel": {
+      "type": "object",
+      "description": "Sentinel structure (mechanics §5).",
+      "additionalProperties": false,
+      "properties": {
+        "build_cost": { "type": "integer", "minimum": 0 },
+        "hp": { "type": "integer", "minimum": 0 },
+        "firewall": { "type": "integer", "minimum": 0, "default": 3 },
+        "effect_radius": { "type": "integer", "minimum": 0, "default": 1 },
+        "fuel_per_tick": { "type": "integer", "minimum": 1, "default": 30 }
+      },
+      "required": ["build_cost", "hp", "firewall", "effect_radius", "fuel_per_tick"]
+    },
+    "structure_firewall_node": {
+      "type": "object",
+      "description": "Firewall Node structure (mechanics §5).",
+      "additionalProperties": false,
+      "properties": {
+        "build_cost": { "type": "integer", "minimum": 0 },
+        "hp": { "type": "integer", "minimum": 0 },
+        "firewall": { "type": "integer", "minimum": 0, "default": 0 },
+        "effect_radius": { "type": "integer", "minimum": 1, "default": 3 },
+        "firewall_bonus": { "type": "integer", "minimum": 1, "default": 2 }
+      },
+      "required": ["build_cost", "hp", "firewall", "effect_radius", "firewall_bonus"]
     }
   }
 }
