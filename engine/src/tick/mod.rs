@@ -186,6 +186,11 @@ impl Scheduler {
         }
         (ClashStop::LengthReached, self.clash_length)
     }
+
+    /// Returns pending handler events in emission order, for state hashing.
+    pub fn pending_handlers(&self) -> impl Iterator<Item = (&EntityId, &Vec<Trigger>)> {
+        self.pending.iter()
+    }
 }
 
 /// Only drones and Sentinels run code (game-design §4.3, §5.2).

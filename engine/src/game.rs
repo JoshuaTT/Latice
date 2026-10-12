@@ -10,9 +10,9 @@ use sha2::{Digest, Sha256};
 use crate::error::EngineError;
 use crate::rng::{MatchRng, StreamId};
 use crate::ruleset::Ruleset;
-use crate::tick::{DroneProgram, EngineOptions, NoopResolver, Resolver, Scheduler};
+use crate::tick::{DroneProgram, EngineOptions, NoopResolver, Resolver, Scheduler, Trigger};
 use crate::world::grid::Team;
-use crate::world::hash::{Extras, Phase};
+use crate::world::hash::{Extras, HandlerKind, PendingHandler, Phase};
 use crate::world::{EntityId, World};
 
 /// An event as seen by a sink. Placeholder until #59 adds the per-type
@@ -181,13 +181,34 @@ impl Match {
                 .map(|m| (m.name.clone(), Sha256::digest(m.source.as_bytes()).into()))
                 .collect()
         });
+        let handlers: Vec<PendingHandler> = self
+            .scheduler
+            .pending_handlers()
+            .flat_map(|(id, triggers)| {
+                triggers.iter().filter_map(move |t| match t {
+                    Trigger::OnHit { attacker } | Trigger::OnHacked { attacker } => {
+                        Some(PendingHandler {
+                            target: *id,
+                            handler: match t {
+                                Trigger::OnHit { .. } => HandlerKind::OnHit,
+                                Trigger::OnHacked { .. } => HandlerKind::OnHacked,
+                                _ => unreachable!(),
+                            },
+                            attacker: *attacker,
+                        })
+                    }
+                    Trigger::OnRadio { .. } => None,
+                })
+            })
+            .collect();
         let extras = Extras {
             seed: self.seed,
             phase: self.phase,
             libraries,
             rng: self.rng.iter().map(|(s, r)| (*s, r.state())).collect(),
-            // TODO: event seq, blackboards, radio and handler queues, drone
-            // RNG streams, once the systems that own them land.
+            handlers,
+            // TODO(#59): event seq, TODO(#103): radio queue, TODO(#56): per-drone
+            // RNG streams, TODO(#56): blackboards (team `board` API).
             ..Extras::default()
         };
         self.world.state_hash(&extras)
@@ -274,6 +295,7 @@ impl Match {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tick::Act;
     use crate::world::Terrain;
     use crate::world::grid::{Cell, Pos};
 
@@ -448,5 +470,77 @@ mod tests {
             (2, ClashEnd::CoreDestroyed(Team::B))
         );
         assert_eq!(m.phase(), Phase::EpochOver);
+    }
+
+    struct EmitTrigger;
+
+    impl Resolver for EmitTrigger {
+        fn resolve(
+            &mut self,
+            world: &mut World,
+            acts: &[(EntityId, Act)],
+        ) -> Vec<(EntityId, Trigger)> {
+            if world.tick == 0 {
+                acts.iter()
+                    .map(|(id, _)| {
+                        (
+                            *id,
+                            Trigger::OnHit {
+                                attacker: EntityId(99),
+                            },
+                        )
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        }
+    }
+
+    struct NoopProgram;
+
+    impl DroneProgram for NoopProgram {
+        fn think(
+            &mut self,
+            _: &World,
+            _: EntityId,
+            _: &[Trigger],
+            _: u32,
+        ) -> crate::tick::RunOutcome {
+            crate::tick::RunOutcome::Acts(vec![])
+        }
+    }
+
+    #[test]
+    fn pending_handlers_affect_state_hash() {
+        let r = ruleset();
+        let mut world = World::new(64, &r).unwrap();
+        let drone_id = world.add_drone(Team::A, Pos { x: 0, y: 0 }, "m").unwrap();
+        let mut sched = Scheduler::new(&r, 64, EngineOptions { think_threads: 1 }).unwrap();
+        sched.set_program(drone_id, Box::new(NoopProgram));
+        let mut m = Match::from_parts(
+            world,
+            vec![(drone_id, Box::new(NoopProgram) as Box<dyn DroneProgram>)],
+            Box::new(EmitTrigger),
+            r,
+            7,
+            EngineOptions::default(),
+        )
+        .unwrap();
+
+        let hash_before = m.state_hash();
+        m.step_tick(&mut NullSink).unwrap();
+        let hash_after = m.state_hash();
+        assert_ne!(
+            hash_before, hash_after,
+            "pending OnHit should change the state hash"
+        );
+
+        m.step_tick(&mut NullSink).unwrap();
+        let hash_cleared = m.state_hash();
+        assert_ne!(
+            hash_after, hash_cleared,
+            "cleared pending handlers should change the state hash"
+        );
     }
 }
