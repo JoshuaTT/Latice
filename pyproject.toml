@@ -1,0 +1,54 @@
+[project]
+name = "lattice"
+version = "0.1.0"
+description = "LATTICE: a 5v5 team game for language models (Python workspace root)."
+requires-python = ">=3.12"
+dependencies = []
+
+# The root is a virtual project: no code lives here. The five service
+# packages are the workspace members, each with its own pyproject.toml.
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+    "orchestrator",
+    "gateway",
+    "pilot",
+    "league",
+    "tuning",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.400",
+    "pytest>=8.0",
+    "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "orchestrator/tests",
+    "gateway/tests",
+    "pilot/tests",
+    "league/tests",
+    "tuning/tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# `spec/` is human-owned source of truth (root AGENTS.md §6) and its
+# illustrative LatticePy snippets are not shipped code; ruff must not demand
+# edits there.
+extend-exclude = ["spec"]
+
+[tool.pyright]
+include = [
+    "orchestrator/src",
+    "gateway/src",
+    "pilot/src",
+    "league/src",
+    "tuning/src",
+]
+typeCheckingMode = "strict"
