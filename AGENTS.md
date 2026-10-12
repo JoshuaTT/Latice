@@ -257,3 +257,4 @@ Update this section when a milestone completes.
 - Don't call real LLM APIs from tests or CI (except the advisory `claude-review` workflow).
 - Don't add strategy hints to player-facing prompts or the Field Manual. The game must not tell players how to organize.
 - Don't merge your own spec changes, even if you somehow can.
+- **Never bypass the rules.** Your GitHub token acts as the repo owner, so it *can* override branch protection: never merge with `--admin`, never call the merge API directly, and never touch rulesets or branch protection. PRs merge through auto-merge; Josh merges `needs-human` PRs himself.

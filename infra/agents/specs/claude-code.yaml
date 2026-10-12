@@ -66,7 +66,21 @@ permissions:
       match: { command: "git push origin main*" }
       action: deny
     - tool: bash
-      match: { command: "gh pr merge --admin*" }
+      match: { command: "gh pr merge*--admin*" }
+      action: deny
+    # Agents act with the repo owner's token, which can bypass the rulesets.
+    # Block every route to an admin merge or to changing branch protection.
+    - tool: bash
+      match: { command: "gh api*merge*" }
+      action: deny
+    - tool: bash
+      match: { command: "curl*merge*" }
+      action: deny
+    - tool: bash
+      match: { command: "gh api*rulesets*" }
+      action: deny
+    - tool: bash
+      match: { command: "gh api*/protection*" }
       action: deny
     - tool: bash
       match: { command: "gh repo delete*" }
