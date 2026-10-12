@@ -454,6 +454,29 @@ fn import_list_cannot_smuggle_banned_names() {
 }
 
 #[test]
+fn plain_imports_report_e_import_at_module_level_and_in_functions() {
+    let body = "def init(me, args):\n    pass\ndef tick(me):\n    pass\n";
+    for src in [
+        format!("import os\n{body}"),
+        format!("import os as x\n{body}"),
+        format!("import os, sys\n{body}"),
+        "def init(me, args):\n    import os\ndef tick(me):\n    pass\n".to_owned(),
+    ] {
+        let r = check(&src);
+        assert!(!r.ok, "accepted: {src}");
+        let codes: Vec<_> = r.diagnostics.iter().map(|d| d.code).collect();
+        assert_eq!(codes, ["E_IMPORT"], "{src}");
+        assert!(
+            r.diagnostics[0].message.contains("no other modules"),
+            "{src}"
+        );
+    }
+    // A misplaced non-import statement keeps its own code.
+    let r = check(&format!("print(1)\n{body}"));
+    assert!(r.diagnostics.iter().any(|d| d.code == "E_TOPLEVEL"));
+}
+
+#[test]
 fn import_aliases_are_rejected() {
     let src = "from lattice import foo as bar\ndef init(me, args):\n    pass\ndef tick(me):\n    bar(1)\n";
     let r = check(src);
