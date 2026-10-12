@@ -224,6 +224,9 @@ impl Ruleset {
 
     /// Reads and parses a ruleset file. For CLI use only; game logic must not
     /// do file I/O.
+    // The one allowed file read (AGENTS.md §8): loading happens before the
+    // simulation starts and the parsed value is the simulation's input.
+    #[allow(clippy::disallowed_methods)]
     pub fn from_path(path: &Path) -> Result<Self, RulesetError> {
         let text = std::fs::read_to_string(path).map_err(|source| RulesetError::Io {
             path: path.to_path_buf(),
