@@ -3,4 +3,4 @@ def init(me, args):
 
 
 def tick(me):
-    open("secrets.txt")
+    open("secrets.txt")  # noqa: SIM115 - fixture: intentionally banned code
