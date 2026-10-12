@@ -241,8 +241,8 @@ mod tests {
         }
     }
 
-    /// Moves entities by editing `pos` directly. Occupancy is not maintained
-    /// (that is #89's `move_entity`); these tests compare positions only.
+    /// Moves entities with `World::move_entity`; a blocked move is simply not
+    /// applied, which the thread-count comparisons treat the same either way.
     #[derive(Default)]
     struct MoveResolver {
         log: Vec<(u64, EntityId, Act)>,
@@ -256,8 +256,8 @@ mod tests {
         ) -> Vec<(EntityId, Trigger)> {
             for (id, act) in acts {
                 self.log.push((world.tick, *id, act.clone()));
-                if let (Act::Move { to }, Some(Entity::Drone(d))) = (act, world.entity_mut(*id)) {
-                    d.pos = *to;
+                if let Act::Move { to } = act {
+                    let _ = world.move_entity(*id, *to);
                 }
             }
             Vec::new()
@@ -364,8 +364,12 @@ mod tests {
             world: &mut World,
             _: &[(EntityId, Act)],
         ) -> Vec<(EntityId, Trigger)> {
-            if let Some(Entity::Drone(d)) = world.entity_mut(self.target) {
-                d.pos.x += 1;
+            if let Some(Entity::Drone(d)) = world.entity(self.target) {
+                let to = Pos {
+                    x: d.pos.x + 1,
+                    ..d.pos
+                };
+                let _ = world.move_entity(self.target, to);
             }
             Vec::new()
         }
