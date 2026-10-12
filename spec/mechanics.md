@@ -19,7 +19,7 @@ Costs come from the ruleset section `[acts]`.
 | `attack` | 2 | adjacent (4-n) | any entity | Deals damage per §2 |
 | `hack` | 3 | adjacent (4-n) | hackable entity | Reduces target firewall per §2; capture at 0 |
 | `patch` | 1 | adjacent (4-n) | friendly entity | Restores firewall per §2 |
-| `build` | per structure | current cell *or* adjacent (4-n) | empty walkable cell | Costs varies by structure kind (§5); instant |
+| `build` | per structure | current cell *or* adjacent (4-n) | empty walkable cell | Costs `{structure}.build_cost` energy *in addition to* the `build` act's energy cost (which is 0 in v1) |
 | `spawn` | 20 | adjacent (4-n) to owned Forge | empty walkable cell | Creates drone from deployed library module |
 | `repair` | 2 | adjacent (4-n) | friendly entity with HP | Restores HP per §2 |
 | `deposit` | 0 | adjacent (4-n) | Battery (own team) | Transfers carried energy; up to 20 per act |
@@ -40,7 +40,7 @@ Costs come from the ruleset section `[acts]`.
 | Drone carry cap | 20 energy | `drone.carry_cap` |
 | Well passive yield | 2 energy per tick per Well | `economy.well_yield_per_tick` |
 
-A drone standing on a Well it owns may use `harvest` to collect the yield in addition to the passive tick income. The team that owns the most of a Well's 8-neighbour cells receives the passive yield each tick (game-design §4.1).
+A drone standing on a Well it owns may use `harvest` to collect the yield. The team that **owns the Well's cell** (game-design §4.1) receives the harvest yield and the passive income. A team owns the Well's cell by having claimed it (integrity > 0), not just by controlling the most 8-neighbour cells. The passive tick yield (`economy.well_yield_per_tick`) is awarded to the team that owns the Well cell; the harvest act yields additional energy (5) that is added to the team's pool.
 
 ---
 
@@ -62,7 +62,7 @@ v1 has **no upkeep**. No energy is deducted per drone per tick. The only ongoing
 | Spawn position | Adjacent (4-n) to an **owned Forge**, on an empty walkable cell | structural rule |
 | Drone cap enforcement | Spawn fails if team is at drone cap | structural rule |
 | Spawn over-cap | Act fails; energy is **refunded** | structural rule |
-| Spawn fuel cost | Target is the spawner's remaining fuel for the tick | structural rule |
+| Spawn fuel | New drone starts with full fuel (same as all drones at tick start, from `scaling.fuel_per_tick`) | structural rule |
 
 A drone may spawn any module from the team's deployed library, with arguments (game-design §5.4). The spawned drone begins with full HP, firewall 3, 0 carried energy, and empty `me.mem`.
 
@@ -86,7 +86,7 @@ Ruleset keys: `structures.barrier`, `structures.relay`, `structures.battery`, `s
 **Stacking rules (v1):**
 - Firewall Nodes stack additively: a drone in range of two Firewall Nodes gets +4 firewall.
 - Relays do **not** stack: a drone in range of multiple Relays gets the extension once.
-- Barriers occupy the cell and block movement; friendly drones can move through cells occupied by friendly structures they own, except Barriers.
+- Drones (including friendly ones) cannot enter a cell that contains any entity (drone or structure). This is the **simplest rule** and matches the world model's one-entity-per-cell invariant (world entity (#88, #105)). Move acts target an **empty walkable cell**; attempting to move into an occupied cell fails.
 
 ---
 
@@ -177,7 +177,7 @@ When a Relic's HP reaches 0, it is **destroyed** and removed from the game for t
 
 `me.sense(radius)` costs fuel proportional to the number of cells scanned. HUD and digest modes (game-design §3.4) reduce the cost by returning summarized data instead of raw cells.
 
-A drone within range 6 of a Relay can sense up to radius 10 (default 5 + relay extension 3 = 8, capped at max 10). Multiple Relays do not stack.
+A drone within range of a Relay (within its effect_radius, 6) gets its sense radius extended by `relay_extension` (3). The extended radius is capped at `max_radius` (10). Example: default 5 + relay extension 3 = 8, capped at max 10. Multiple Relays do not stack.
 
 ---
 
@@ -188,7 +188,8 @@ Marks are tags written on cells for stigmergic communication (game-design §5.5)
 | Parameter | Value | Ruleset key |
 |---|---|---|---|
 | Max TTL | 500 ticks | `marks.max_ttl` |
-| Value size cap | 64 bytes | `marks.value_size_bytes` |
+| Value size cap | 64 bytes (of the value's JSON encoding, same as state-hash v1) | `marks.value_size_bytes` |
+| Value size exceeded | The `mark` act fails (energy is not spent, but fuel for `me.mark()` is consumed up to the check point) | structural rule |
 | Max marks per cell | 4 | `marks.max_per_cell` |
 | Eviction policy | oldest mark evicted (FIFO) when 5th mark is written | structural rule |
 
@@ -221,21 +222,27 @@ The engine resolves acts **serially** in a fixed order each tick (game-design / 
 ```
 build < spawn < repair < patch < deposit < withdraw < harvest < claim
 < move < attack < hack < capture < radio_sent < mark_written
-< core_damage < structure_destroyed < cell_flipped
+< core_damage < structure_destroyed < cell_flip
 ```
 
-Within each act type, priority goes to the seat that comes first in the **rotating per-epoch seat order** (the order advances each epoch so no seat is always first).
+Within each act type, ties are resolved by **seat order**:
+- Each team has 5 seats (0–4), matching the order in the manifest (game-design §8).
+- Teams alternate: epoch 0 starts with team A seat 0, epoch 1 with team B seat 0, and so on.
+- Within a team, drones are ordered by **ascending entity ID** (the order they were spawned; spawn order is deterministic from manifest order).
+- This produces a total order: no two acts compare equal.
 
 ### 12.1 Conflict rules
 
 | Situation | Resolution |
 |---|---|
-| **Two drones move into the same cell** | Seat priority wins: the drone whose seat comes first in the current epoch's order gets the cell; the other's move fails and it stays in place. Both drones consume their act. |
-| **Move into a cell being vacated** | Valid. All moves resolve atomically in seat order: the vacating drone leaves first (earlier seat), vacating the cell, which is then available for later-seat moves. |
+| **Two drones move into the same cell** | Seat priority wins (as defined above). The drone whose seat comes earlier gets the cell; the other's move fails and it stays in place. Both drones consume their act. |
+| **Two drones swap cells** | Invalid: both moves fail, both drones stay in place, both consume their acts. The resolver checks for swaps explicitly and rejects them. |
+| **Three-or-more drone cycle** | All moves in the cycle fail, all drones stay in place, all consume their acts. |
+| **Move into a cell being vacated** | Valid only if the vacating drone has earlier seat priority. The cell must be empty at the moment the moving drone's act resolves. |
 | **Target moves away before attack** | Moves resolve before attacks. If the attack target has moved to a position still adjacent to the attacker, the attack applies at the new position. If the target is no longer adjacent, the attack fails (energy is still spent). |
 | **Attack destroys a target mid-tick** | The destroyed entity's subsequent scheduled acts are skipped. |
 | **Structure destroyed mid-tick** | Acts targeting a destroyed structure fail (e.g., a hack targeting a Barrier that was destroyed earlier in the same tick). |
 | **Drone destroyed by attack while carrying energy** | Carried energy is lost (not transferred). |
-| **Simultaneous claims to same cell** | Seat priority wins: the earlier seat's claim resolves first. For enemy cells, the first claim reduces integrity by 1; the second resolves against the updated integrity. |
+| **Simultaneous claims to same cell** | Seat priority wins (as defined above). For enemy cells, the first claim reduces integrity by 1; the second resolves against the updated integrity. |
 
 These rules are enforced by the resolve engine executing acts in the deterministic priority order listed above. No act can "look ahead" at pending resolutions; each sees the state left by all previously resolved acts.
