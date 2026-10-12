@@ -179,7 +179,7 @@ fn stream_key(s: StreamId) -> (u8, u64) {
     match s {
         StreamId::Mapgen => (0, 0),
         StreamId::TieBreak => (1, 0),
-        StreamId::Drone(id) => (2, id),
+        StreamId::Drone(id) => (2, u64::from(id)),
     }
 }
 

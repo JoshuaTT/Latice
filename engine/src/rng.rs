@@ -26,24 +26,27 @@ use serde::{Deserialize, Serialize};
 /// consumers can ever share a sequence:
 /// - [`StreamId::Mapgen`]: stream 0.
 /// - [`StreamId::TieBreak`]: stream 1.
-/// - [`StreamId::Drone`]: streams `2 + drone_id`, one per drone.
+/// - [`StreamId::Drone`]: streams `2 + drone_id` (a `u32`), one per drone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StreamId {
     /// Map generation draws.
     Mapgen,
     /// Engine tie-breaks.
     TieBreak,
-    /// Per-drone stream (`me.rand()`), keyed by drone id.
-    Drone(u64),
+    /// Per-drone stream (`me.rand()`), keyed by drone id. `u32` matches
+    /// `EntityId`, and keeps `2 + id` far below `u64::MAX`, so no drone id can
+    /// reach the `Mapgen` or `TieBreak` values.
+    Drone(u32),
 }
 
 impl StreamId {
-    /// The ChaCha stream value for this stream.
+    /// The ChaCha stream value for this stream. Total and injective: at most
+    /// `2 + u32::MAX`.
     pub fn value(self) -> u64 {
         match self {
             StreamId::Mapgen => 0,
             StreamId::TieBreak => 1,
-            StreamId::Drone(id) => 2 + id,
+            StreamId::Drone(id) => 2 + u64::from(id),
         }
     }
 }
@@ -209,9 +212,35 @@ mod tests {
         assert_eq!(rng.below(1), 0);
     }
 
+    #[test]
+    fn largest_drone_id_neither_overflows_nor_collides() {
+        let max = StreamId::Drone(u32::MAX).value();
+        assert_eq!(max, 2 + u64::from(u32::MAX));
+        assert_ne!(max, StreamId::Mapgen.value());
+        assert_ne!(max, StreamId::TieBreak.value());
+        // Values that worked before the id was narrowed are unchanged.
+        assert_eq!(StreamId::Mapgen.value(), 0);
+        assert_eq!(StreamId::TieBreak.value(), 1);
+        assert_eq!(StreamId::Drone(0).value(), 2);
+        assert_eq!(StreamId::Drone(3).value(), 5);
+    }
+
     use proptest::prelude::*;
 
+    fn any_stream() -> impl Strategy<Value = StreamId> {
+        prop_oneof![
+            Just(StreamId::Mapgen),
+            Just(StreamId::TieBreak),
+            any::<u32>().prop_map(StreamId::Drone),
+        ]
+    }
+
     proptest! {
+        #[test]
+        fn distinct_streams_have_distinct_values(a in any_stream(), b in any_stream()) {
+            prop_assert_eq!(a == b, a.value() == b.value());
+        }
+
         #[test]
         fn below_always_in_range(seed in any::<u64>(), n in 1u64..1024, draws in 1usize..64) {
             let mut rng = MatchRng::new(seed, StreamId::TieBreak);
