@@ -95,6 +95,9 @@ impl<'a> Lower<'a> {
                     imported = true;
                     out.extend(self.stmt(s));
                 }
+                // `import x` at module level is an import error ("no such
+                // module"), not a misplaced statement: same as inside a `def`.
+                ast::Stmt::Import(_) => out.extend(self.stmt(s)),
                 ast::Stmt::FunctionDef(_) | ast::Stmt::AsyncFunctionDef(_) => out.extend(self.stmt(s)),
                 ast::Stmt::Assign(_) => {
                     if let Some(st) = self.stmt(s) {
