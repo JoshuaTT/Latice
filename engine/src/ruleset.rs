@@ -203,6 +203,27 @@ pub enum WinCondition {
 pub struct Mutators {
     pub pool: Vec<String>,
     pub draw_count: u32,
+    /// `[mutators.params]`. Optional until `default.toml` carries it (a
+    /// follow-up spec PR); anything that needs a value fails if it is absent.
+    #[serde(default)]
+    pub params: Option<MutatorParams>,
+}
+
+/// `[mutators.params]`: numeric parameters of the game-design §6 mutators
+/// (`spec/mapgen.md` §6.2). No defaults here: values come from the ruleset.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MutatorParams {
+    pub fog_sense_cap: u32,
+    pub costly_spawn_multiplier: u32,
+    pub quiet_radio_range: u32,
+    pub small_board_keys: u32,
+    pub glass_core_firewall: u32,
+    pub plague_hack_cost_percent: u32,
+    pub thin_air_fuel_percent: u32,
+    pub drift_percent: u32,
+    pub long_night_ticks: u32,
+    pub banned_call_candidates: Vec<String>,
 }
 
 /// Values derived from the ruleset for a particular board side length
@@ -220,6 +241,11 @@ pub struct Derived {
     /// symmetries pair every object with its image (`spec/mapgen.md` §1).
     pub placed_relics: u64,
     pub starting_energy: u64,
+    /// Each Core's starting firewall (`board.core_firewall`); Glass Core
+    /// overrides it.
+    pub core_firewall: u32,
+    /// Fuel per drone per tick (`scaling.fuel_per_tick`); Thin Air overrides it.
+    pub fuel_per_tick: u32,
 }
 
 impl Derived {
@@ -271,6 +297,8 @@ impl Ruleset {
             relics,
             placed_relics: relics / 2 * 2,
             starting_energy: s.starting_energy.at(side),
+            core_firewall: self.board.core_firewall,
+            fuel_per_tick: s.fuel_per_tick,
         })
     }
 }

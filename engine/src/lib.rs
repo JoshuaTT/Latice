@@ -16,6 +16,7 @@
 pub mod error;
 pub mod events;
 pub mod game;
+pub mod mutators;
 pub mod ruleset;
 pub mod snapshot;
 
