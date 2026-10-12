@@ -72,6 +72,7 @@ Other commands:
 |---|---|
 | `./swarm.sh status` | List swarm sessions |
 | `./swarm.sh nudge [names]` | Nudge now (all, or named agents). Uses `prompts/nudge-<role>.md` if it exists (the coordinator has its own), else `prompts/nudge.md` |
+| `./swarm.sh restore [names]` | Move DigitalOcean agents back from a fallback model to their configured one |
 | `./swarm.sh tell <name> <message>` | Send one agent a one-off message, e.g. `./swarm.sh tell coordinator "Prioritize the LatticePy spec"`, or `@file` |
 | `./swarm.sh attach w2` | Talk to one agent interactively; `Ctrl-D` detaches |
 | `./swarm.sh logs w2` | Replay an agent's event history |
@@ -79,6 +80,17 @@ Other commands:
 | `./swarm.sh up w5` | Add an agent after adding it to `swarm.conf` |
 | `./swarm.sh down` | Remove sessions (asks first) |
 | `./swarm.sh render w3` | Print one agent's rendered spec |
+
+## When a model hits its daily limit
+
+DigitalOcean Inference has a daily token allowance **per model**. When a DigitalOcean agent's run fails with `429 Rate limit exceeded: tokens_per_day`, `swarm.sh` recovers on its own:
+
+1. **Detect.** Every DigitalOcean prompt runs through a small wrapper that reads `doctl`'s closing `run failed: ...` line. Only *daily* limits trigger failover. Per-minute limits clear by themselves, so the next nudge just retries.
+2. **Pick a model.** It takes the first model that isn't cooling down (default 6 hours after a daily limit, `RATE_LIMIT_COOLDOWN_HOURS`) and isn't used by another agent. It checks the agent's configured model first, then the `@fallbacks` pool in `swarm.conf`, then other agents' models as a last resort, shared.
+3. **Save work.** Before removing the old session, it pushes any uncommitted or unpushed work in that sandbox to `wip/<name>/<branch>`. It never pushes to the PR branch, so half-done work can't auto-merge.
+4. **Recreate and hand off.** It recreates `lattice-<name>` on the new model and sends the role prompt plus a handoff note: continue the claimed issue, open PRs, and anything on `wip/<name>/*`. The run continues right away. A comment on the `Swarm status` issue records the switch.
+
+If no model is available, the agent waits and retries on the next nudge. `./swarm.sh status` shows agents on a fallback (`(fallback)`) and which models are cooling down. `./swarm.sh restore <name>` moves an agent back to its configured model once that model has cooled down. Set `AUTO_FAILOVER=0` to turn failover off.
 
 ## Running an agent on your laptop
 

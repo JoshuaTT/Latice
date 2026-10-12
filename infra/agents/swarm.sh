@@ -20,6 +20,7 @@
 #   nudge [names]    Send the "continue" prompt to agents that aren't mid-run
 #                    (prompts/nudge-<role>.md if it exists, else prompts/nudge.md)
 #   tell <name> <message...>   Send one agent a one-off message (or @file)
+#   restore [names]  Move DigitalOcean agents back from a fallback model to their configured one
 #   watch [minutes]  Nudge every N minutes (default 20) until Ctrl-C
 #   attach <name>    Talk to one agent interactively (Ctrl-D detaches)
 #   logs <name>      Show an agent's history
@@ -31,6 +32,12 @@
 # current run is tracked by a PID file, so nudges never overlap with a run in
 # progress and one busy agent never holds up the others. Run output goes to
 # .swarm/<name>.log.
+#
+# Model failover (DigitalOcean): when a run fails because its model hit the
+# account's daily token limit (429 tokens_per_day), the agent is moved to the
+# next available model from the @fallbacks line in swarm.conf: unfinished work
+# is saved to a wip/ branch, the session is recreated on the new model, and
+# the new session gets a handoff note. Set AUTO_FAILOVER=0 to turn this off.
 #
 # Agents coordinate through GitHub issues and PRs, not through this script.
 
@@ -44,6 +51,9 @@ STATE_DIR="$HERE/.swarm"          # gitignored: rendered specs, PID files, run l
 COORD_WAIT_MIN="${COORD_WAIT_MIN:-30}"
 DO_INFERENCE_URL="https://inference.do-ai.run"
 LOCAL_HOME="${LATTICE_LOCAL_HOME:-$HOME/lattice-swarm}"   # local agents' workspaces
+AUTO_FAILOVER="${AUTO_FAILOVER:-1}"                  # switch models on daily rate limits
+RATE_LIMIT_COOLDOWN_HOURS="${RATE_LIMIT_COOLDOWN_HOURS:-6}"  # skip a limited model this long
+MAX_FAILOVERS="${MAX_FAILOVERS:-3}"                  # per run
 
 die()  { echo "error: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
@@ -58,7 +68,10 @@ fi
 # ---------- roster ----------
 
 # Roster lines: name role adapter model size
-roster() { grep -vE '^[[:space:]]*(#|$)' "$CONF"; }
+roster() { grep -vE '^[[:space:]]*(#|$|@)' "$CONF"; }
+
+# Fallback models for DigitalOcean agents, from the "@fallbacks" line(s).
+fallback_models() { awk '$1 == "@fallbacks" { for (i = 2; i <= NF; i++) print $i }' "$CONF"; }
 
 agent_line() {
   local line
@@ -154,9 +167,18 @@ uses_claude_code() { roster | awk '$3 == "claude-code"' | grep -q .; }
 
 sed_escape() { printf '%s' "$1" | sed -e 's/[\/&|]/\\&/g'; }
 
+# The model an agent actually runs: its configured model, unless failover
+# moved it to a fallback (recorded in .swarm/<name>.model).
+model_override_file() { echo "$STATE_DIR/$1.model"; }
+agent_model() {
+  local f; f="$(model_override_file "$1")"
+  if [[ -s "$f" ]] && ! is_local "$1"; then cat "$f"; else agent_field "$1" 4; fi
+}
+
 render_spec() {
   local name="$1" role adapter model size
   read -r _ role adapter model size <<<"$(agent_line "$name")"
+  model="$(agent_model "$name")"
   local spec="$HERE/specs/$adapter.yaml"
   [[ -f "$spec" ]] || die "no spec for adapter '$adapter' (expected $spec)"
   sed -e "s|\${AGENT_NAME}|$(sed_escape "$name")|g" \
@@ -375,8 +397,8 @@ is_busy() {
   # Alive, not a zombie, and still one of our runners (guards against PID reuse).
   stat="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d ' ')" || return 1
   [[ -n "$stat" && "$stat" != Z* ]] || return 1
-  comm="$(ps -o comm= -p "$pid" 2>/dev/null)"
-  case "$comm" in *doctl*|*claude*|*node*|*caffeinate*|*env*) return 0;; *) return 1;; esac
+  comm="$(ps -o args= -p "$pid" 2>/dev/null)"
+  case "$comm" in *doctl*|*claude*|*node*|*caffeinate*|*"swarm.sh _run-remote"*) return 0;; *) return 1;; esac
 }
 
 session_exists() { doctl harness-runtime show "$(session "$1")" >/dev/null 2>&1; }
@@ -419,12 +441,179 @@ send_prompt() {
       echo $! >"$(pid_file "$name")"
     )
   else
-    # --on-hitl reject: nobody is there to approve, so refuse instead of hanging.
-    nohup doctl harness-runtime prompt "$(session "$name")" - \
-        --on-hitl reject --quiet <"$file" >>"$log" 2>&1 &
+    # Runs `doctl harness-runtime prompt` and handles model failover (see
+    # cmd_run_remote). Re-invoking the script keeps it alive after we exit.
+    nohup bash "$HERE/swarm.sh" _run-remote "$name" "$file" >>"$log" 2>&1 &
     echo $! >"$(pid_file "$name")"
   fi
   echo "[$name] prompt sent (pid $(cat "$(pid_file "$name")"), log: ${log#"$HERE"/})"
+}
+
+# ---------- model failover (DigitalOcean daily token limits) ----------
+
+rate_limit_file() { echo "$STATE_DIR/ratelimits"; }
+
+mark_rate_limited() {  # mark_rate_limited <model>
+  mkdir -p "$STATE_DIR"
+  printf '%s %s\n' "$1" "$(date +%s)" >>"$(rate_limit_file)"
+}
+
+# True while a model is inside its cooldown after hitting a daily limit.
+model_cooling() {
+  local f now last
+  f="$(rate_limit_file)"; [[ -f "$f" ]] || return 1
+  last="$(awk -v m="$1" '$1 == m { t = $2 } END { print t + 0 }' "$f")"
+  now="$(date +%s)"
+  [[ "$last" -gt 0 && $((now - last)) -lt $((RATE_LIMIT_COOLDOWN_HOURS * 3600)) ]]
+}
+
+# A failed run whose closing line reports a *daily* limit. Per-minute limits
+# are transient, so they're left for the next nudge to retry.
+is_daily_limit_failure() {  # is_daily_limit_failure <output-file>
+  grep -qiE '^run failed:.*(tokens_per_day|requests_per_day)' "$1"
+}
+
+# Models other DigitalOcean agents are running right now.
+models_in_use_except() {
+  local n
+  for n in $(roster | awk -v x="$1" '$3 != "local" && $1 != x {print $1}'); do agent_model "$n"; done | sort -u
+}
+
+# pick_fallback <name>: print the best model to move this agent to, or fail.
+# Order: its configured model, then the @fallbacks pool, then other agents'
+# models. Skips the model it's on and any model cooling down; prefers models
+# nobody else is using, so each agent draws on its own daily allowance.
+pick_fallback() {
+  local name="$1" current configured in_use m candidates=()
+  current="$(agent_model "$name")"; configured="$(agent_field "$name" 4)"
+  in_use="$(models_in_use_except "$name")"
+  candidates+=("$configured")
+  while IFS= read -r m; do [[ -n "$m" ]] && candidates+=("$m"); done < <(fallback_models)
+  while IFS= read -r m; do [[ -n "$m" ]] && candidates+=("$m"); done <<<"$in_use"
+  local pass
+  for pass in unused shared; do
+    for m in "${candidates[@]}"; do
+      [[ "$m" == "$current" ]] && continue
+      model_cooling "$m" && continue
+      if [[ "$pass" == unused ]] && grep -qx -- "$m" <<<"$in_use"; then continue; fi
+      echo "$m"; return 0
+    done
+  done
+  return 1
+}
+
+# rescue_wip <name>: before the old session is removed, push any uncommitted
+# or unpushed work in its sandbox to wip/<name>/<branch>. Never to the PR
+# branch itself, so half-finished work can't trigger auto-merge. Best effort.
+rescue_wip() {
+  local name="$1" script
+  # shellcheck disable=SC2016  # runs in the sandbox's shell
+  script='for g in $(find /workspace "$HOME" -maxdepth 4 -name .git -type d 2>/dev/null | sort -u); do
+  r=$(dirname "$g"); cd "$r" || continue
+  b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || continue
+  case "$b" in main|HEAD) continue;; esac
+  if [ -n "$(git status --porcelain)" ]; then
+    git add -A && git -c user.name=lattice-NAME -c user.email=lattice-NAME@users.noreply.github.com commit -qm "wip: auto-saved before model failover"
+  fi
+  if git push -q origin "HEAD:refs/heads/wip/NAME/$b" 2>/dev/null; then echo "saved $r ($b) to wip/NAME/$b"; fi
+done'
+  script="${script//NAME/$name}"
+  doctl harness-runtime exec "$(session "$name")" --timeout 120 -- bash -lc "$script" 2>&1 \
+    | sed 's/^/    [wip] /' || true
+}
+
+# notify_status <text>: best-effort comment on the Swarm status issue.
+notify_status() {
+  local num body
+  num="$(gh_get "/issues?state=open&labels=swarm:status&per_page=1" 2>/dev/null \
+          | grep -oE '"number": *[0-9]+' | head -1 | grep -oE '[0-9]+')" || return 0
+  [[ -n "$num" ]] || return 0
+  body="$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  curl -fsS -m 20 -X POST "https://api.github.com/repos/$REPO/issues/$num/comments" \
+    -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json" \
+    -d "{\"body\":\"$body\"}" >/dev/null 2>&1 || true
+}
+
+# failover_agent <name> <reason>: move a DigitalOcean agent to another model by
+# recreating its session, and write the handoff prompt for the new session.
+failover_agent() {
+  local name="$1" reason="$2" old new
+  old="$(agent_model "$name")"
+  if ! new="$(pick_fallback "$name")"; then
+    echo "===== $(date '+%Y-%m-%d %H:%M:%S') $name: no fallback model available (all cooling down or in use); will retry on the next nudge"
+    return 1
+  fi
+  echo "===== $(date '+%Y-%m-%d %H:%M:%S') $name: switching $old -> $new ($reason)"
+  rescue_wip "$name"
+  doctl harness-runtime remove "$(session "$name")" >/dev/null 2>&1 || true
+  if [[ "$new" == "$(agent_field "$name" 4)" ]]; then
+    rm -f "$(model_override_file "$name")"
+  else
+    echo "$new" >"$(model_override_file "$name")"
+  fi
+  render_spec "$name" >"$STATE_DIR/$name.yaml"
+  if ! doctl harness-runtime create --spec "$STATE_DIR/$name.yaml"; then
+    echo "===== $name: couldn't create the session on $new; will retry on the next nudge"
+    return 1
+  fi
+  {
+    render_prompt "$name"
+    cat <<EOF
+
+## Handoff: you're taking over mid-stream
+
+You are continuing as **$name** after a model switch: the previous session ran on \`$old\` and stopped ($reason). That session is gone, but everything it pushed is on GitHub. Any unfinished work it hadn't pushed was saved to branches named \`wip/$name/<branch>\`.
+
+Pick up where it left off: check open issues labeled \`swarm:$name\`, your open PRs, and any \`wip/$name/*\` branches. Continue that work, bringing changes over from \`wip/\` onto the real branch if they're worth keeping; never open a PR from a \`wip/\` branch. Then carry on with your normal loop.
+EOF
+  } >"$STATE_DIR/$name.handoff.md"
+  notify_status "Swarm: **$name** switched from \`$old\` to \`$new\` ($reason). Unpushed work, if any, is on \`wip/$name/*\`."
+  return 0
+}
+
+# _run-remote <name> <prompt-file>: run one DigitalOcean prompt (background),
+# and on a daily-limit failure fail over and continue on the new model.
+cmd_run_remote() {
+  local name="$1" file="$2" attempt=0 out rc model
+  need_creds
+  out="$STATE_DIR/$name.lastrun"
+  while :; do
+    # No --quiet: its closing "run failed: ..." line is how failures are detected.
+    # --on-hitl reject: nobody is there to approve, so refuse instead of hanging.
+    set +e
+    doctl harness-runtime prompt "$(session "$name")" - --on-hitl reject <"$file" 2>&1 | tee "$out"
+    rc=${PIPESTATUS[0]}
+    set -e
+    [[ $rc -eq 0 ]] && return 0
+    is_daily_limit_failure "$out" || return "$rc"
+
+    model="$(agent_model "$name")"
+    mark_rate_limited "$model"
+    echo "===== $(date '+%Y-%m-%d %H:%M:%S') $name: $model hit its DigitalOcean daily token limit"
+    [[ "$AUTO_FAILOVER" == 1 ]] || { echo "     (AUTO_FAILOVER=0; not switching models)"; return "$rc"; }
+    attempt=$((attempt + 1))
+    if [[ $attempt -gt $MAX_FAILOVERS ]]; then
+      echo "===== $name: gave up after $MAX_FAILOVERS model switches in one run"; return "$rc"
+    fi
+    failover_agent "$name" "$model hit its daily token limit" || return "$rc"
+    file="$STATE_DIR/$name.handoff.md"
+  done
+}
+
+# restore [names]: move agents on a fallback model back to their configured one.
+cmd_restore() {
+  local names name
+  names="$(selected_names "$@")"
+  need_doctl; need_creds
+  for name in $names; do
+    is_local "$name" && continue
+    [[ -s "$(model_override_file "$name")" ]] || { echo "[$name] already on its configured model"; continue; }
+    is_busy "$name" && { echo "[$name] mid-run; try again when it's idle"; continue; }
+    if model_cooling "$(agent_field "$name" 4)"; then
+      echo "[$name] $(agent_field "$name" 4) is still cooling down after a daily limit; try later"; continue
+    fi
+    failover_agent "$name" "restored to its configured model" && send_prompt "$name" "$STATE_DIR/$name.handoff.md"
+  done
 }
 
 # ---------- GitHub helpers (curl only; no gh or python needed) ----------
@@ -510,10 +699,11 @@ check_remote() {
   info "prepayment balance"
   doctl harness-runtime balance || warn "could not read balance"
 
-  info "DigitalOcean models in swarm.conf (a 1-token test call each; costs a fraction of a cent)"
+  info "DigitalOcean models in swarm.conf, including @fallbacks (a 1-token test call each; costs a fraction of a cent)"
+  [[ -n "$(fallback_models)" ]] || warn "no @fallbacks line in swarm.conf: agents can't switch models when one hits its daily limit"
   local models m code body
   if models="$(cmd_models 2>/dev/null)" && [[ -n "$models" ]]; then
-    for m in $(roster | awk '$3 != "local" {print $4}' | sort -u); do
+    for m in $( { roster | awk '$3 != "local" {print $4}'; fallback_models; } | sort -u); do
       if ! grep -qx -- "$m" <<<"$models"; then
         warn "$m is not a known model ID (run ./swarm.sh models)"; fail=1; continue
       fi
@@ -678,8 +868,17 @@ cmd_status() {
     else
       state="not started"
     fi
-    printf '  %-12s %-13s %-28s %s\n' "$name" "$where" "$(agent_field "$name" 4)" "$state"
+    local shown; shown="$(agent_model "$name")"
+    [[ "$shown" != "$(agent_field "$name" 4)" ]] && shown="$shown (fallback)"
+    printf '  %-12s %-13s %-28s %s\n' "$name" "$where" "$shown" "$state"
   done
+  local m cooling=()
+  for m in $( { roster | awk '$3 != "local" {print $4}'; fallback_models; } | sort -u); do
+    model_cooling "$m" && cooling+=("$m")
+  done
+  if [[ ${#cooling[@]} -gt 0 ]]; then
+    echo; info "models cooling down after a daily limit (${RATE_LIMIT_COOLDOWN_HOURS}h): ${cooling[*]}"
+  fi
   # DigitalOcean sessions named like swarm agents that the roster no longer
   # runs there (e.g. an agent moved to "local") keep running and billing.
   if command -v doctl >/dev/null; then
@@ -849,13 +1048,15 @@ main() {
     status)  cmd_status ;;
     nudge)   cmd_nudge "$@" ;;
     tell)    cmd_tell "$@" ;;
+    restore) cmd_restore "$@" ;;
+    _run-remote) cmd_run_remote "$@" ;;
     watch)   cmd_watch "$@" ;;
     attach)  cmd_attach "$@" ;;
     logs)    cmd_logs "$@" ;;
     pause)   cmd_each pause "$@" ;;
     resume)  cmd_each resume "$@" ;;
     down)    cmd_down "$@" ;;
-    ""|-h|--help|help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
+    ""|-h|--help|help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' ;;
     *) die "unknown command '$cmd' (try: swarm.sh help)" ;;
   esac
 }
