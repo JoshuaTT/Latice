@@ -31,6 +31,19 @@ Budgets live in one table in that file, each citing its spec line. Add a case
 there when a new piece of code has a performance budget. The library's own
 bench harness is disabled (`[lib] bench = false`) because it rejects `--budget`.
 
+Sandbox (checker side; the VM half arrives with #47/#48):
+
+```bash
+cargo test -p lattice-engine --test sandbox          # static escape suite: real source, expected E_* codes
+cd engine/fuzz && cargo +nightly fuzz run checker    # needs nightly and `cargo install cargo-fuzz`
+cd engine/fuzz && cargo +nightly fuzz build          # what a nightly CI job runs
+```
+
+`engine/fuzz/` is its own workspace (stable CI never builds it). Its `checker`
+target feeds arbitrary bytes to `check_bytes` and asserts the engine-API
+invariants; seed inputs are in `engine/fuzz/corpus/checker/`. When a case in
+`tests/sandbox.rs` is added, also add its source to that corpus.
+
 ## Acceptance tests
 
 - `cargo build` and `cargo test` must pass.
