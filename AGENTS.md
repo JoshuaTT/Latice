@@ -232,18 +232,20 @@ Visibility bugs are game-breaking: a player seeing another player's intel shard 
 
 ---
 
-## 12. Current milestone: M0 — Contracts and skeleton
+## 12. Current milestone: M1 — Headless engine
 
-Done when (system design §11.3): schemas, repo, CI, and empty modules compile, and the human approves the contracts and the LatticePy subset.
+Done when (system design §11.3): `lattice sim` runs house bot vs. house bot at 64² deterministically, and the checker and quota work. Human checkpoint: the human glances at sample replays (ASCII).
 
-Expected M0 tasks:
-1. `spec/contracts/`: gateway tool schemas, event schema, spectator feed schema, ruleset schema, manifest schema, with examples (spec PRs)
-2. `spec/rulesets/default.toml`: every parameter from game design §14.2 and §4.0 (spec PR)
-3. `spec/latticepy.md`: the exact Python subset, float policy, and limits (spec PR, needs human sign-off)
-4. Rust workspace: `engine`, `cli` (`lattice-cli`), `engine-py`, `engine-wasm` skeletons that compile; `rust-toolchain.toml`
-5. Python workspace: `pyproject.toml` with `orchestrator`, `gateway`, `pilot`, `league`, `tuning` packages that import cleanly
-6. Module `AGENTS.md` files for each new top-level directory
-7. A first golden test fixture format and an empty `tests/golden/` harness
+M0 (contracts and skeleton) completed on 2026-10-12; see the `Milestone decision: M0 → M1` comment on the `Swarm status` issue.
+
+Expected M1 tasks (issues #37–#62; the `Swarm status` issue tracks dependencies):
+1. Spec gaps, settled first (spec PRs): clash mechanics numbers (#37), `lattice` library API with fuel costs (#38), engine API contract (#39), canonical state serialization for state hashes (#40)
+2. Engine foundations: ruleset loader (#41), seeded ChaCha RNG (#42), world model (#43), software float (#44)
+3. Checker and quota: LatticePy checker (#45), `lattice check` CLI (#46)
+4. VM and sandbox: interpreter with fuel and caps (#47), sandbox escape suite and fuzz targets (#48)
+5. Simulation: tick scheduler (#52), resolver for movement and economy (#53), combat and hacking (#54), building and spawning (#55), `lattice` library bindings (#56), event emission (#59)
+6. World tooling: ASCII renderer (#49), 64² starter map (#50), state hash (#51), benchmark harness with `--budget` (#60)
+7. End to end: house bots in `bots/` (#57), `lattice sim` (#58), real `replay --verify` (#62), first golden fixture (#61)
 
 Update this section when a milestone completes.
 
