@@ -1,0 +1,6 @@
+{
+  "tool": "teleport_drone",
+  "beat_id": 4,
+  "idempotency_key": "nope-1",
+  "args": {}
+}

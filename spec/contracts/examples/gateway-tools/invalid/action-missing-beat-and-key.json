@@ -1,0 +1,7 @@
+{
+  "tool": "write_file",
+  "args": {
+    "path": "modules/scout.py",
+    "content": "from lattice import *\n"
+  }
+}
