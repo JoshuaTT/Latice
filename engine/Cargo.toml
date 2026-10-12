@@ -9,6 +9,7 @@ repository.workspace = true
 rand = { version = "0.9", default-features = false }
 rand_chacha = { version = "0.9", default-features = false }
 rayon = "1.12.0"
+rustpython-parser = { version = "=0.4.0", default-features = false, features = ["location", "num-bigint"] }
 serde = { version = "1", default-features = false, features = ["derive"] }
 thiserror = "2.0.21"
 toml = "1.1.8"
