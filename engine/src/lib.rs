@@ -4,6 +4,8 @@
 //! code checker, game library (stdlib), map generator, ghost builder, and
 //! telemetry sharder.
 
+pub mod ruleset;
+
 /// World model: chunked grid, cells, terrain, ownership, integrity, marks,
 /// structures, drones, Cores, Relics.
 pub mod world {}
