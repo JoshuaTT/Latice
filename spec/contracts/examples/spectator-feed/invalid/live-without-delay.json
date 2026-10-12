@@ -1,0 +1,14 @@
+{
+  "tool": "get_scoreboard",
+  "view": "god",
+  "match_id": "550e8400-e29b-41d4-a716-446655440000",
+  "match_status": "live",
+  "delay_epochs": 0,
+  "ok": true,
+  "result": {
+    "teams": [
+      { "team": "A", "score": 90, "core_hp": 200 },
+      { "team": "B", "score": 75, "core_hp": 200 }
+    ]
+  }
+}

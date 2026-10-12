@@ -1,0 +1,10 @@
+{
+  "tool": "query_events",
+  "args": {
+    "filter": {
+      "event_types": ["attack", "hack", "capture"],
+      "teams": ["A"]
+    },
+    "tick_range": { "from": 0, "to": 64 }
+  }
+}

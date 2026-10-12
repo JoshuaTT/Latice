@@ -1,0 +1,14 @@
+{
+  "tool": "get_state",
+  "view": "player",
+  "match_id": "550e8400-e29b-41d4-a716-446655440000",
+  "match_status": "finished",
+  "delay_epochs": 0,
+  "ok": true,
+  "result": {
+    "tick": 512,
+    "epoch": 4,
+    "team": "A",
+    "seat": "P1"
+  }
+}
