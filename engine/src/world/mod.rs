@@ -23,6 +23,7 @@
 //! [`World::check_invariants`] verifies all of this and is for tests and the
 //! scenario harness.
 
+pub mod ascii;
 pub mod entity;
 pub mod grid;
 pub mod hash;
