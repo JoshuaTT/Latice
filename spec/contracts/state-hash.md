@@ -16,7 +16,7 @@ Exactly the following state, in exactly this order (§4 gives the section layout
 - Every entity, by ascending id: drones (id, team, position, hp, firewall, carried energy, module name, `me.mem`), structures (kind, team, position, hp, firewall, stored energy, and for Sentinels the module and `mem`), Cores, Relics.
 - Each team's blackboard (entries in insertion order, plus its reserved keys).
 - Pending radio messages (sent, not yet delivered).
-- Pending `on_hit` and `on_hacked` handler events (caused in tick N, delivered in tick N+1). `on_radio` deliveries are not hashed separately: they are derived from the pending radio messages above.
+- Pending `on_hit` and `on_hacked` handler events (caused in tick N, delivered in tick N+1). `on_radio` deliveries are not hashed separately: they are derived from the pending radio messages above. This relies on one rule: recipients are the sender team's live drones within `range` of `(x, y)` (extended by Relays) at the start of the delivery tick, so per-recipient deliveries are derived, not stored. Game design §5.5 does not state this; it is proposed here and needs Josh's confirmation (if recipients are instead fixed at send time, pending per-recipient radio deliveries must be hashed and §4 changes).
 - Each team's deployed library: module names with the SHA-256 of each module's source.
 - RNG stream positions: `Mapgen`, `TieBreak`, and one stream per live drone.
 
