@@ -72,9 +72,53 @@ that produced them: storing one in `me.mem` or a blackboard value is a
 
 ---
 
-## 1. Values
+## 1. Builtins and methods
 
-### 1.1 `Pos`
+LatticePy allows a small set of built-in functions. Each has a fuel cost and deterministic semantics.
+
+### 1.0.1 Allowed builtins
+
+| Builtin | Signature | Fuel | Notes |
+|---|---|---|---|
+| `len(x)` | `(list\|tuple\|dict\|str) -> int` | 1 | For `dict`, returns the number of keys. |
+| `min(a, b, ...)` | `(*args) -> int\|F` | 2 | All args must be the same type (`int` or `F`). Returns the minimum by value. |
+| `max(a, b, ...)` | `(*args) -> int\|F` | 2 | All args must be the same type (`int` or `F`). Returns the maximum by value. |
+| `abs(x)` | `(int\|F) -> int\|F` | 2 | Returns the absolute value; return type matches input type. |
+| `int(x)` | `(str\|int\|F) -> int` | 4 | Parses a decimal `str` (no leading/trailing spaces; `bad_call` on failure); truncates `F` toward zero; identity on `int`. |
+| `bool(x)` | `(any) -> bool` | 1 | `False` for `None`, `0`, `""`, `[]`, `()`, `{}`; `True` otherwise. |
+| `list(x)` | `(list\|tuple\|dict) -> list` | 2 | Copies a `list`/`tuple`; for `dict`, returns a list of keys in insertion order. |
+| `tuple(x)` | `(list\|tuple\|dict) -> tuple` | 2 | Copies a `list`/`tuple`; for `dict`, returns a tuple of keys in insertion order. |
+| `dict(x)` | `(dict\|list) -> dict` | 2 | Copies a `dict`; for a `list`, expects pairs `(key, value)` and builds a dict in list order. |
+| `sorted(x)` | `(list\|tuple) -> list` | `4 + len(x)` | Returns a new `list` with elements in ascending order. All elements must be comparable (`int` with `int`, `F` with `F`, `str` with `str`); mixed types is `bad_call`. |
+| `enumerate(x)` | `(list\|tuple) -> list` of `(int, any)` | 2 | Returns a `list` of `(index, element)` pairs. |
+| `zip(a, b, ...)` | `(*iterables) -> list` of tuples | `2 + sum(len(x))` | Returns a `list` of tuples, one per position, truncated to the shortest input. |
+| `range(stop)` | `(int) -> list` of `int` | 2 | Returns `[0, 1, ..., stop-1]`; `stop <= 0` returns `[]`. |
+| `range(start, stop)` | `(int, int) -> list` of `int` | 2 | Returns `[start, start+1, ..., stop-1]`; empty if `start >= stop`. |
+
+### 1.0.2 Allowed methods
+
+| Type | Method | Signature | Fuel | Notes |
+|---|---|---|---|---|
+| `dict` | `get` | `(key, default=None) -> any` | 2 | Returns the value for `key`, or `default` if absent. |
+| `list` | `append` | `(any) -> None` | 2 | Appends in place; returns `None`. Subject to `max_list_len` cap. |
+| `str` | (none) | — | — | No `str` methods in v1; use `+` for concatenation. |
+
+### 1.0.3 Not available
+
+These builtins do **not** exist in LatticePy; calling them is `bad_call`:
+`id`, `hash`, `object`, `super`, `iter`, `next`, `breakpoint`, `repr`, `callable`, `format`, `classmethod`, `staticmethod`, `property`, `bytearray`, `bytes`, `vars`, `getattr`, `setattr`, `hasattr`, `delattr`, `globals`, `locals`, `eval`, `exec`, `compile`, `__import__`, `input`, `open`, `print`, `ord`, `chr`, `hex`, `oct`, `bin`, `ascii`, `memoryview`, `slice`, `type`, `isinstance`, `issubclass`, `dir`, `help`.
+
+No dunder methods are accessible (`__dict__`, `__class__`, `__len__`, etc.).
+
+---
+
+## 2. Values
+
+### 2.1.1 `Pos` storage and hashing
+
+`Pos` values are stored and hashed as their `(x, y)` tuple representation (`i64`, `i64`) in little-endian bytes, per `state-hash.md` §2. When stored in `me.mem`, blackboard values, or lists, a `Pos` is equivalent to storing the tuple `(x, y)`. This ensures the state hash has a defined encoding without adding a new value tag.
+
+### 2.1 `Pos`
 
 ```text
 Pos(x: int, y: int) -> Pos      free op
@@ -85,7 +129,7 @@ value equality. Not a legal dict key; the idiom for map keys is the
 `(x, y)` tuple. A `Pos` off the board is constructible and comparable;
 calls that would use it fail soft (e.g. `me.cell(off)` is `None`).
 
-### 1.2 Directions
+### 2.2 Directions
 
 Eight `Dir` constants:
 
@@ -99,6 +143,10 @@ Eight `Dir` constants:
 `Dir` values compare by `==`, and are storable anywhere a value fits
 (`me.mem`, lists, blackboard values), but are not legal dict keys.
 
+### 2.2.1 `Dir` storage and hashing
+
+`Dir` values are stored and hashed as their `(dx, dy)` tuple representation (`i64`, `i64`) in little-endian bytes, per `state-hash.md` §2. When stored in `me.mem`, blackboard values, or lists, a `Dir` is equivalent to storing the tuple `(dx, dy)`.
+
 ```text
 turn_left(d: Dir) -> Dir        free op   # 45° counterclockwise
 turn_right(d: Dir) -> Dir       free op   # 45° clockwise
@@ -110,7 +158,7 @@ The **direction order** `NORTH, NORTHEAST, EAST, SOUTHEAST, SOUTH,
 SOUTHWEST, WEST, NORTHWEST` is the fixed tiebreak order used throughout
 this library (§5 `step_toward`, §11 `kite`).
 
-### 1.3 `F` — the software float
+### 2.3 `F` — the software float
 
 `F` is the namespace object of latticepy §4 (the software IEEE 754
 double): `F.add`, `F.sub`, `F.mul`, `F.div`, `F.lt`, `F.le`, `F.gt`,
@@ -248,7 +296,7 @@ this drone has sensed — v1 keeps no per-team map knowledge; see
 
 ### `me.step_toward(dest)` → `bool` — act
 
-Fuel: `step_cost`. Greedy step: among the eight neighbours (in §1.2
+Fuel: `step_cost`. Greedy step: among the eight neighbours (in §2.2
 direction order) that are not `me.blocked(dir)`, queue `move` to the one
 with the smallest Chebyshev distance to `dest`. Returns `False` (nothing
 queued) if `dest == me.pos`, if `dest` is off-board, or if no enterable
@@ -269,8 +317,10 @@ software float (latticepy §4). Chebyshev distance needs no library call:
 ### `me.angle_to(dest)` → `F` — query
 
 Fuel: `geo_angle`. atan2-style angle from `me.pos` to `dest`, radians in
-`[0, 2π)` counterclockwise from east. Failure: `bad_call` if `dest` is not
-a `Pos`.
+`[0, 2π)` counterclockwise from east. The result is **correctly rounded**
+to the nearest representable `F` value (round-half-to-even), matching the
+software float implementation in `latticepy.md` §4. Failure: `bad_call` if
+`dest` is not a `Pos`.
 
 ---
 
@@ -384,7 +434,7 @@ one element; views are not storable, §0), with total element count up to
 `blackboard_string_len`; over any of these → `cap_violation`. A write to a
 key the manifest reserved (`board.reserved`) returns `False`.
 
-### `me.radio.send(text)` → `bool` — query
+### 10.3 `me.radio.send(text)` → `bool` — query
 
 Fuel: `radio_send` (library cost); **energy**: 1 from the team pool
 (game-design §5.5), spent only if the send succeeds. **One send per drone
@@ -392,12 +442,16 @@ per tick** — a second returns `False`. `text`: `str` up to
 `max_string_len` (latticepy §6; longer → `cap_violation`). Broadcasts to
 friendly drones within `radio_range` (Chebyshev; default 8; the Quiet
 Radio mutator lowers it to 3; Relays extend it) **at delivery**: at the
-start of the next tick the receivers are the friendly drones within range
-of the sender's position *then*, each running `on_radio(me, msg)` with
+start of the next tick, the recipients are the friendly drones within range
+of the **recorded send-time position** `(x, y)` (the sender's position when
+it called `send`), extended by Relay meshes. The sender does **not**
+receive its own message. If the sender is destroyed before delivery, the
+message is still delivered to recipients computed from the recorded `(x, y)`.
+Each recipient runs `on_radio(me, msg)` with
 
 ```python
 msg = {"sender": str,   # sender's me.id
-       "from": Pos,     # sender's position when it sent
+       "from": Pos,     # sender's position when it sent (recorded)
        "text": str,     # the text, unchanged
        "at": int}       # me.now when it sent
 ```
@@ -557,6 +611,42 @@ belong to that same ruleset change.
 
 ## 14. The game-design §5.8 modules, checked
 
+**Ruleset keys sequencing note:** The `[fuel]` and `[behaviors]` tables above
+list defaults and ranges for this API reference. The authoritative keys land
+in `spec/rulesets/default.toml` via the follow-up ruleset PR after #37 merges.
+When writing that PR, add keys in this order: (1) structural keys first
+(`path_max_expand`, `radio_sends_per_tick`, `blackboard_*`), (2) fuel costs,
+(3) behavior parameters. This keeps the resolver's static validation clean.
+
+---
+
+## 15. Reconciliation with #108 (clash mechanics spec)
+
+Three items in this reference depend on #108's adjacency and mechanics rules.
+Pending Josh's decision on #108, the following notes mark the conflicts:
+
+1. **Direction count (§2.2):** This spec assumes 8 directions (diagonals allowed).
+   #108 may change this to 4 cardinals. Resolution: follow #108's merged rule;
+   update §2.2 direction table, `turn_left/right` semantics, and all "eight
+   neighbours" references (e.g. `me.step_toward`, `me.blocked`).
+
+2. **Harvest/deposit mechanics (§7):** This spec defers yield rules, draw
+   conditions, and deposit targets to #37/#108. Resolution: once #108 merges,
+   fill §7 with the authoritative mechanics; until then, the `False`-on-invalid
+   convention holds.
+
+3. **Sense radius cap (§4):** The default `sense` radius is the match cap
+   (decision 11). #108 may introduce a Relay extension rule. Resolution: add
+   the Relay's radius extension formula to §4 after #108 merges.
+
+Until #108 merges, implementers should treat items 1–3 as **provisional** and
+follow the merged #108 spec. This API reference will be updated in a follow-up
+PR immediately after #108 lands.
+
+---
+
+## 16. The game-design §5.8 modules, checked
+
 Both example modules are valid against this API as written:
 
 **`scout.py`**: `args.get("dir", EAST)` — dict method on an allowed
@@ -574,42 +664,42 @@ stored as a board value.
 
 ---
 
-## Decisions for @JoshuaTT
+## 17. Decisions for @JoshuaTT
 
 The judgment-heavy picks this reference made; each is flagged for sign-off:
 
-1. **Eight directions, diagonal movement** (§1.2): `move` accepts all 8;
+1. **Eight directions, diagonal movement** (§2.2): `move` accepts all 8;
    Chebyshev geometry throughout. (Alternative: 4 cardinals — simpler,
    but `turn_left/right` and kiting get coarse.)
-2. **`y` grows north, `x` east** (§0): fixes the grid convention the
+2. **`y` grows north, `x` east** (§1): fixes the grid convention the
    renderer (#49) and mapgen must match.
 3. **`me.now` is global and monotonic**, never reset at epoch boundaries
-   (§0): time-difference logic (`me.now - t < 50`) stays valid across
+   (§1): time-difference logic (`me.now - t < 50`) stays valid across
    epochs. (Alternative: per-epoch reset, matching the event log's
    `tick` field.)
 4. **`path_to` plans over the full terrain**, not per-team sensed
-   knowledge (§5): v1 has no per-team map memory; path shapes leak wall
+   knowledge (§6): v1 has no per-team map memory; path shapes leak wall
    layout. The fuel price (per expanded node) is the brake. Revisit with
    the shard/intel work.
 5. **`bad_call` added to the runtime errors** (latticepy §8): wrong-typed
    or invalid library arguments stop the drone loudly rather than
    returning `False` silently. LLM players debug from telemetry; silent
    failure hides bugs for a whole match.
-6. **One radio send and one blackboard write per drone per tick** (§10):
-   the §5.5 table states the blackboard limit; radio gets the same rule
+6. **One radio send and one blackboard write per drone per tick** (§11):
+   the §11.5 table states the blackboard limit; radio gets the same rule
    for symmetry and event volume.
 7. **Radio delivers at the start of the next tick**, receivers computed
-   from the sender's position *then*, ordered by sender id (§10): one
+   from the sender's position *then*, ordered by sender id (§11): one
    deterministic choice among several defensible ones.
-8. **Behaviors keep state in `me.mem["behav:<name>"]`** (§11): visible,
+8. **Behaviors keep state in `me.mem["behav:<name>"]`** (§12): visible,
    capped, deterministic; no hidden engine-side per-drone state.
 9. **Ally views expose `.energy` and `.module`; enemy views do not**
-   (§3): enemy module identity is capture intel (game-design §5.6).
-10. **Only a queued act consumes the act slot** (§0): soft-failed act
+   (§4): enemy module identity is capture intel (game-design §5.6).
+10. **Only a queued act consumes the act slot** (§1): soft-failed act
     calls leave the tick's act free for a later call — sharper than a
     bare "first act wins", and consistent with it.
-11. **`sense` default radius = the match cap** (§4): players who do not
+11. **`sense` default radius = the match cap** (§5): players who do not
     think pay for what the cap costs; `sense(3)` is the thinking player's
     tool.
-12. **Terrain does not occlude sensing** (§4): v1 keeps the scan a plain
+12. **Terrain does not occlude sensing** (§5): v1 keeps the scan a plain
     radius ball; occlusion would need a second rule set for line-of-sight.
