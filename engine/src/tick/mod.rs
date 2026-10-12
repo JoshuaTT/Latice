@@ -136,6 +136,15 @@ impl Scheduler {
             .flat_map(|(&id, list)| list.iter().map(move |t| (id, t)))
     }
 
+    /// Replaces the pending queue, as restore needs. `triggers` must be in the
+    /// order [`Scheduler::pending_triggers`] yields them.
+    pub fn set_pending(&mut self, triggers: Vec<(EntityId, Trigger)>) {
+        self.pending.clear();
+        for (id, trigger) in triggers {
+            self.pending.entry(id).or_default().push(trigger);
+        }
+    }
+
     /// Attaches the program that runs `id`'s code.
     pub fn set_program(&mut self, id: EntityId, program: Box<dyn DroneProgram>) {
         self.programs.insert(id, program);

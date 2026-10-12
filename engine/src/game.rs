@@ -60,19 +60,20 @@ pub struct ClashResult {
 type WinHook = Box<dyn FnMut(&World) -> Option<ClashEnd> + Send>;
 
 pub struct Match {
-    world: World,
-    scheduler: Scheduler,
+    // Crate-visible so `snapshot.rs` can capture and rebuild the state.
+    pub(crate) world: World,
+    pub(crate) scheduler: Scheduler,
     resolver: Box<dyn Resolver + Send>,
     win: Option<WinHook>,
-    ruleset: Ruleset,
-    seed: u64,
-    phase: Phase,
-    clash_length: u64,
+    pub(crate) ruleset: Ruleset,
+    pub(crate) seed: u64,
+    pub(crate) phase: Phase,
+    pub(crate) clash_length: u64,
     /// Why the clash that just finished ended; taken by `run_clash`.
-    ended: Option<ClashEnd>,
-    deployments: [TeamDeployment; 2],
-    rng: [(StreamId, MatchRng); 2],
-    emitter: Emitter,
+    pub(crate) ended: Option<ClashEnd>,
+    pub(crate) deployments: [TeamDeployment; 2],
+    pub(crate) rng: Vec<(StreamId, MatchRng)>,
+    pub(crate) emitter: Emitter,
 }
 
 impl Match {
@@ -105,7 +106,10 @@ impl Match {
             ended: None,
             emitter: Emitter::default(),
             deployments: [TeamDeployment::default(), TeamDeployment::default()],
-            rng: [StreamId::Mapgen, StreamId::TieBreak].map(|s| (s, MatchRng::new(seed, s))),
+            rng: [StreamId::Mapgen, StreamId::TieBreak]
+                .into_iter()
+                .map(|s| (s, MatchRng::new(seed, s)))
+                .collect(),
         })
     }
 
