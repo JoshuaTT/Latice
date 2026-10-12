@@ -1,5 +1,5 @@
 # LATTICE — System Design
-*v0.1 · companion to `spec/game-design.md` (v0.2)*
+*v0.2 · companion to `spec/game-design.md` (v0.3)*
 
 ---
 
@@ -14,6 +14,8 @@ LATTICE runs as a set of services around one deterministic core:
 - **Event Store and Replay**: matches are stored as their seed plus player inputs and re-simulated on demand.
 - **Spectators**: a web viewer for humans and an MCP/stream feed for AI agents.
 - **League services**: scheduling, ratings, budgets, and the **tuning loop**, which turns Retro feedback and match metrics into proposed rule changes for a human to approve.
+- **Scenario harness**: scripted, model-free players and a regression suite that play real games end to end, so every feature is proven by running it (§2.6).
+- **Benchmark runner**: runs LATTICE-Bench under the protocol in game design §18 and produces reports with confidence intervals and a reproducibility bundle (§2.6).
 
 The whole system is designed to be **built by coding agents**:
 
@@ -116,6 +118,29 @@ The engine ships as a Rust library, a Python binding (PyO3) used by the orchestr
 | **Tuning system** | See §6 |
 | **Observability** | Traces for Pilot calls (latency, tokens, cost, errors), engine performance, match health dashboards, alerts |
 | **Admin console** | Web UI for configuring and starting matches, viewing costs, approving rule changes, and stopping matches |
+
+### 2.6 Testing harness and benchmark runner
+
+Two modules exist to prove the system works and to make results trustworthy. Neither ever calls a real model in tests.
+
+**Scenario harness** (`harness/`, Python, with LatticePy bots in `bots/`). This is the tester's workstream.
+
+| Module | Responsibility |
+|---|---|
+| **Scenario format** | Declarative files in `tests/scenarios/`: seed, ruleset version, map, participants (scripted players or bots), scripted actions per tick (engine level) or per beat (match level), and assertions (winner, score bounds, specific events, state hash, invariants such as "no drone outside the board" or "energy never negative") |
+| **Scripted players** | Deterministic, model-free players. At engine level they are LatticePy bots. At match level they are Python policies acting through the Player Gateway exactly as a Pilot would: messages, file writes, manifests, signatures, passes. Includes adversarial players (malformed input, rule-edge actions) and **random-but-valid** players for smoke games |
+| **Runner** | A CLI (`lattice-harness run <scenario...>`) plus pytest integration. It runs scenarios, checks assertions, and on failure prints an exact repro (commit, command, seed, tick or beat) and saves the replay |
+| **Regression suite** | Every verified behavior and every fixed bug becomes a scenario. A fast subset runs in the CI `test` job; long and randomized runs go to the nightly workflow |
+| **Rigor checks** | Same seed twice gives identical state hashes; results don't change with thread count; native and WASM parity; mirrored, side-swapped games on symmetric maps come out even across many seeds; full-match runs within the performance budgets |
+
+The harness grows with the milestones: engine-level scenarios (scripted bots in `lattice sim`) from M1, full matches with scripted players through the Gateway from M3, and benchmark-protocol dry runs with scripted players from M6.
+
+**Benchmark runner** (`league/bench/`). Runs LATTICE-Bench according to game design §18:
+- **Protocol config:** frozen ruleset, seed sets (public dev and held-out by hash), board-size tiers, budget tiers, fixed beat length, failure and void policy, participant pins
+- **Scheduling:** paired, mirrored, side-swapped matches for each comparison, with the sample size fixed in advance
+- **Analysis:** paired win rates with bootstrap intervals, Bradley–Terry ratings, permutation tests, secondary and sub-skill metrics
+- **Reproducibility bundle:** everything in game design §18.5, with a hash-chained record and the bundle hash
+- **Dry-run mode:** the whole protocol with scripted players instead of models, so the pipeline is tested end to end at no model cost
 
 ---
 
@@ -339,7 +364,11 @@ These should be folded into the game design doc v0.3:
 
 - **Specs are the source of truth.** The game design, this system design, and machine-readable **contracts** (JSON Schema for gateway tools and events; the Rust trait for the engine API; a TOML schema for rulesets) live in `/spec`. Agents may propose changes to specs but cannot merge them without your approval.
 - **One module per agent workstream.** Each module directory has an `AGENTS.md` (or `CLAUDE.md`) stating its scope, contracts, acceptance tests, and what not to touch. Agents work in parallel git worktrees.
-- **A coordinator agent** keeps the milestone task list, assigns workstreams, and resolves contract questions. **Reviewer agents** check each PR against the spec. **Test agents** write adversarial tests (fuzzers, sandbox escape attempts, determinism breakers).
+- **Swarm roles** (`infra/agents/`):
+  - **Coordinator: product owner and quality controller.** Writes and prioritizes the backlog (precise issues with acceptance criteria), reviews PRs and merged work against the spec, blocks defective PRs, triages bugs, and decides milestone transitions. It doesn't assign work.
+  - **Workers** pick their own tasks from the prioritized `ready` backlog and see them through to merge.
+  - **Tester** builds and runs the software against real scenarios, plays full games with scripted players and no models, owns the scenario harness and regression suite (§2.6), and files bugs with exact repros.
+  - An advisory AI review runs on every PR, and adversarial tests (fuzzers, sandbox escape attempts, determinism breakers) are part of the backlog.
 - **CI is the referee:** lint, unit tests, golden determinism replays (native and WASM must match), contract tests, and performance budgets.
 - **Human checkpoints** happen only at milestone boundaries and for the items in §8.
 
@@ -362,7 +391,9 @@ lattice/
   admin/          admin console
   bots/           house bots (LatticePy)
   infra/          IaC, containers, CI
+  harness/        scenario runner, scripted players (no models)
   tests/golden/   seeded replays with expected hashes
+  tests/scenarios/ regression scenarios run by the harness
 ```
 
 ### 11.3 Milestones
@@ -370,13 +401,13 @@ lattice/
 | # | Milestone | Done when | Human checkpoint |
 |---|---|---|---|
 | **M0** | Contracts and skeleton | Schemas, repo, CI, empty modules compile | Approve contracts and LatticePy subset |
-| **M1** | Headless engine | `lattice sim` runs house bot vs. house bot at 64² deterministically; checker and quota work | Glance at sample replays (ASCII) |
+| **M1** | Headless engine | `lattice sim` runs house bot vs. house bot at 64² deterministically; checker and quota work; an engine-level scenario regression suite (scripted bots, no models) runs in CI | Glance at sample replays (ASCII) |
 | **M2** | Maps and scaling | Map generator with all mutators; fairness validator; 1024² clash under the performance budget | — |
-| **M3** | Match runtime | Full match with **scripted** players through Gateway: beats, charges, repo, quorum, Muster, Retro | — |
+| **M3** | Match runtime | Full match with **scripted** players through Gateway: beats, charges, repo, quorum, Muster, Retro; full-match scenarios in the regression suite | — |
 | **M4** | First LLM match | Pilot with 2+ providers; a real 5v5 at 64² ends with a result | Watch it; approve system prompt; set budgets |
 | **M5** | Watchable | Event store, replay, AI spectator feed, basic web viewer | Visual direction review |
-| **M6** | League and tuning | Scheduler, ratings, latency classes, metrics, Tuning Analyst, balance harness, review UI | Approve tuning guardrails |
-| **M7** | Scale and polish | Large maps in the viewer, live delayed streaming, commentary track, admin console | Security review; go/no-go for a public league |
+| **M6** | League, tuning and benchmark | Scheduler, ratings, latency classes, metrics, Tuning Analyst, balance harness, review UI; benchmark runner with a full scripted-player dry run of the LATTICE-Bench protocol | Approve tuning guardrails and the benchmark protocol |
+| **M7** | Scale and polish | Large maps in the viewer, live delayed streaming, commentary track, admin console; first LATTICE-Bench report with reproducibility bundle | Security review; go/no-go for a public league and benchmark release |
 
 ### 11.4 Performance budgets (CI-enforced)
 

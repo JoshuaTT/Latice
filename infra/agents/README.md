@@ -7,24 +7,33 @@ Runs a team of coding agents on [DigitalOcean Managed Agents](https://docs.digit
 There's no special orchestration service. **GitHub is the coordination layer:**
 
 ```
-            ┌──────────────── GitHub: JoshuaTT/Latice ────────────────┐
-            │  issues (labeled swarm:<name>)   PRs   CI   CODEOWNERS  │
-            └──▲──────────────▲────────────▲───────────▲──────────▲───┘
-   files &     │  pick up     │            │           │          │ approves
-   assigns     │  issues,     │            │           │          │ spec + owned
-   issues      │  open PRs    │            │           │          │ paths
-         ┌─────┴─────┐  ┌─────┴──┐  ┌──────┴─┐  ┌──────┴─┐  ┌─────┴──┐
-         │coordinator│  │   w1   │  │   w2   │  │   w3   │  │  Josh  │
-         └───────────┘  └────────┘  └────────┘  └────────┘  └────────┘
+            ┌──────────────────── GitHub: JoshuaTT/Latice ─────────────────────┐
+            │  prioritized backlog (ready, priority:*)   PRs   CI   human-gate  │
+            └──▲──────────────▲───────────────▲───────────────▲───────────▲────┘
+  writes,      │  self-assign │  self-assign   │  runs games,  │           │ approves
+  prioritizes, │  (swarm:<n>),│  area:testing, │  files bugs   │           │ needs-human
+  reviews PRs  │  open PRs    │  harness PRs   │               │           │ PRs
+         ┌─────┴─────┐  ┌─────┴──┐       ┌─────┴──┐                   ┌────┴───┐
+         │coordinator│  │workers │       │ tester │                   │  Josh  │
+         └───────────┘  └────────┘       └────────┘                   └────────┘
                  ▲ nudge every N min (swarm.sh watch, from your machine)
 ```
 
-- **Coordinator** (one session): keeps a deep backlog (the current milestone fully broken into issues, the next milestone planned ahead, and at least 2 `ready` issues per worker), decides when to move to the next milestone (recorded as a `Milestone decision` comment with evidence), turns work into small issues, assigns each to a worker with a `swarm:<name>` label, watches PRs, escalates anything that needs you, and keeps a **`Swarm status`** issue up to date. That issue is your dashboard.
-- **Workers** (the rest): loop on their assigned issues: branch → implement → test → PR → auto-merge → next. They follow `AGENTS.md`.
-- **CI, rulesets, and CODEOWNERS** decide what merges. Code with green CI merges by itself; spec and other code-owned changes wait for you.
-- **Nudges** keep the loop going. Agents stop when they run out of work or finish a task. `swarm.sh watch` sends each one a short "continue" prompt on a timer. Idle sessions pause automatically (30 min) and wake on the next nudge, so a quiet swarm costs almost nothing in compute.
+- **Coordinator: product owner and quality controller** (one session).
+  - **Backlog:** keeps it deep and prioritized: the current milestone fully broken into precise issues, the next milestone planned ahead, at least 2 `ready` issues per worker, and `area:testing` work for the tester.
+  - **Quality control:** reviews PRs and merged work against the spec. It blocks defective PRs by turning off their auto-merge and adding `qc:changes-requested`. It also triages the tester's bugs.
+  - **Milestones:** decides when to move to the next one, recorded as a `Milestone decision` comment with evidence.
+  - **Dashboard:** keeps the **`Swarm status`** issue up to date.
+  - **It doesn't assign work.**
+- **Workers** pick their own tasks from the `ready` backlog in priority order, claim them with their `swarm:<name>` label, and loop: branch, implement, test, PR, auto-merge, next. They follow `AGENTS.md`.
+- **Tester:**
+  - builds and runs the software against real scenarios, and plays full games with scripted players and no models
+  - owns the scenario harness (`harness/`) and regression suite (`tests/scenarios/`)
+  - files bugs with exact repros, and reports in a **`Test status`** issue
+- **CI, rulesets and `human-gate`** decide what merges. Code with green CI merges by itself; PRs labeled `needs-human`, or touching code-owned paths, wait for you.
+- **Nudges** keep the loop going. Agents stop when they run out of work or finish a task. `swarm.sh watch` sends each one its role's nudge on a timer (`prompts/nudge-<role>.md`, else `prompts/nudge.md`). Idle sessions pause automatically after 30 minutes and wake on the next nudge, so a quiet swarm costs almost nothing in compute.
 
-The default roster (`swarm.conf`) is a coordinator plus four workers on four different model/harness combinations. Edit it freely.
+The roster (`swarm.conf`) lists each agent's role, harness and model. Edit it freely; mixing models doubles as data on which models build well together.
 
 ## One-time setup
 
