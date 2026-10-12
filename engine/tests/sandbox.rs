@@ -78,10 +78,8 @@ fn attempts() -> Vec<(&'static str, String, &'static str)> {
         // Imports
         ("import lattice names getattr", "from lattice import getattr\ndef init(me, args):\n    pass\ndef tick(me):\n    pass\n".into(), "E_BANNED_NAME"),
         ("import alias", "from lattice import move as getattr\ndef init(me, args):\n    pass\ndef tick(me):\n    pass\n".into(), "E_IMPORT_ALIAS"),
-        // #121: top-level `import os` is rejected but reported as E_TOPLEVEL, not
-        // E_IMPORT; update these two when it is fixed.
-        ("import os", "import os\ndef init(me, args):\n    pass\ndef tick(me):\n    pass\n".into(), "E_TOPLEVEL"),
-        ("import os as x", "import os as x\ndef init(me, args):\n    pass\ndef tick(me):\n    pass\n".into(), "E_TOPLEVEL"),
+        ("import os", "import os\ndef init(me, args):\n    pass\ndef tick(me):\n    pass\n".into(), "E_IMPORT"),
+        ("import os as x", "import os as x\ndef init(me, args):\n    pass\ndef tick(me):\n    pass\n".into(), "E_IMPORT"),
         ("from os import star", "from os import *\ndef init(me, args):\n    pass\ndef tick(me):\n    pass\n".into(), "E_IMPORT"),
         ("relative import", "from . import x\ndef init(me, args):\n    pass\ndef tick(me):\n    pass\n".into(), "E_IMPORT"),
         ("import inside tick", t("    import os"), "E_IMPORT"),
