@@ -33,10 +33,13 @@ pub enum RulesetError {
         #[source]
         source: std::io::Error,
     },
-    /// Scaling is undefined below `s = 1`.
-    #[error("side length {side} is below the minimum of {SCALE_UNIT_SIDE}")]
-    SideTooSmall { side: u32 },
+    /// Only `64 * 2^k` sides are legal (`spec/mapgen.md` §1).
+    #[error("side length {side} is not legal; legal side lengths are 64, 128, 256, 512 and 1024")]
+    IllegalSide { side: u32 },
 }
+
+/// The legal board side lengths: `64 * 2^k`, `k = 0..=4` (`spec/mapgen.md` §1).
+pub const LEGAL_SIDES: [u32; 5] = [64, 128, 256, 512, 1024];
 
 /// A complete ruleset (`spec/rulesets/*.toml`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -142,10 +145,8 @@ pub enum Formula {
 
 impl Scaled {
     /// Evaluates the formula at `side` (at least [`SCALE_UNIT_SIDE`]) in
-    /// integer math only.
-    // spec: game-design §4.0 doesn't say how to round when `s` isn't a perfect
-    // square or a power of two (or when `side` isn't a multiple of 64). This
-    // takes the floor of the exact value; full scaling rules are M2.
+    /// integer math only: the floor of the exact value, as `spec/mapgen.md` §1
+    /// specifies.
     fn at(self, side: u32) -> u64 {
         let base = u64::from(self.base);
         let side64 = u64::from(side);
@@ -212,8 +213,22 @@ pub struct Derived {
     pub drone_cap: u64,
     pub wells: u64,
     pub neutral_forges: u64,
+    /// The formula's Relic count. Not all of these are placed; see
+    /// [`Derived::placed_relics`].
     pub relics: u64,
+    /// Relics the generator places: `2 * floor(relics / 2)`, because both
+    /// symmetries pair every object with its image (`spec/mapgen.md` §1).
+    pub placed_relics: u64,
     pub starting_energy: u64,
+}
+
+impl Derived {
+    /// The hook for mutator overrides, applied after scaling (`spec/mapgen.md`
+    /// §6.2). The ruleset itself is never changed; a match applies its
+    /// mutators to this copy.
+    pub fn with_overrides(self, apply: impl FnOnce(Derived) -> Derived) -> Derived {
+        apply(self)
+    }
 }
 
 impl Ruleset {
@@ -241,19 +256,20 @@ impl Ruleset {
         &self.version
     }
 
-    /// Board-scaled values at `side`, which must be at least
-    /// [`SCALE_UNIT_SIDE`].
+    /// Board-scaled values at `side`, which must be one of [`LEGAL_SIDES`].
     pub fn derived(&self, side: u32) -> Result<Derived, RulesetError> {
-        if side < SCALE_UNIT_SIDE {
-            return Err(RulesetError::SideTooSmall { side });
+        if !LEGAL_SIDES.contains(&side) {
+            return Err(RulesetError::IllegalSide { side });
         }
         let s = &self.scaling;
+        let relics = s.relics.at(side);
         Ok(Derived {
             clash_length_ticks: s.clash_length_ticks.at(side),
             drone_cap: s.drone_cap.at(side),
             wells: s.wells.at(side),
             neutral_forges: s.neutral_forges.at(side),
-            relics: s.relics.at(side),
+            relics,
+            placed_relics: relics / 2 * 2,
             starting_energy: s.starting_energy.at(side),
         })
     }
@@ -380,20 +396,70 @@ mod tests {
     }
 
     #[test]
-    fn derived_floors_non_square_scales() {
-        // s = 2: 2000 * sqrt(2) = 2828.4..., log2(2) = 1.
-        let d = default().derived(128).unwrap();
-        assert_eq!(d.clash_length_ticks, 2828);
-        assert_eq!(d.wells, 12);
-        assert_eq!(d.relics, 3);
+    fn derived_matches_the_mapgen_table_at_all_five_legal_sides() {
+        // spec/mapgen.md section 1, including the 128 and 512 columns the
+        // game-design table omits. Floor rounding: 2000 * sqrt(2) = 2828.4.
+        let r = default();
+        let row = |side| {
+            let d = r.derived(side).unwrap();
+            [
+                d.clash_length_ticks,
+                d.drone_cap,
+                d.wells,
+                d.neutral_forges,
+                d.relics,
+                d.placed_relics,
+                d.starting_energy,
+            ]
+        };
+        assert_eq!(row(64), [2000, 60, 6, 2, 2, 2, 400]);
+        assert_eq!(row(128), [2828, 84, 12, 4, 3, 2, 565]);
+        assert_eq!(row(256), [4000, 120, 24, 8, 4, 4, 800]);
+        assert_eq!(row(512), [5656, 169, 48, 16, 5, 4, 1131]);
+        assert_eq!(row(1024), [8000, 240, 96, 32, 6, 6, 1600]);
     }
 
     #[test]
-    fn derived_rejects_side_below_unit() {
-        assert!(matches!(
-            default().derived(63),
-            Err(RulesetError::SideTooSmall { side: 63 })
-        ));
+    fn placed_relics_are_even_and_never_exceed_the_formula_count() {
+        let r = default();
+        let placed: Vec<u64> = LEGAL_SIDES
+            .iter()
+            .map(|&s| r.derived(s).unwrap().placed_relics)
+            .collect();
+        assert_eq!(placed, [2, 2, 4, 4, 6]);
+        for &s in &LEGAL_SIDES {
+            let d = r.derived(s).unwrap();
+            assert!(d.placed_relics.is_multiple_of(2) && d.placed_relics <= d.relics);
+        }
+    }
+
+    #[test]
+    fn illegal_sides_are_rejected_naming_the_legal_set() {
+        for side in [0, 32, 63, 100, 192, 320, 576, 1023, 1025, 2048] {
+            let err = default().derived(side).unwrap_err();
+            assert!(
+                matches!(err, RulesetError::IllegalSide { side: s } if s == side),
+                "{side}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains(&side.to_string()), "{msg}");
+            assert!(
+                msg.contains("64, 128, 256, 512 and 1024"),
+                "message lacks the legal set: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn mutator_hook_applies_after_scaling_without_touching_the_ruleset() {
+        let r = default();
+        let before = r.clone();
+        let d = r.derived(64).unwrap().with_overrides(|d| Derived {
+            clash_length_ticks: d.clash_length_ticks.max(4000),
+            ..d
+        });
+        assert_eq!(d.clash_length_ticks, 4000);
+        assert_eq!(r, before);
     }
 
     #[test]
