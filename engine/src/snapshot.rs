@@ -6,6 +6,10 @@
 //! (grid chunks shared copy-on-write), RNG stream positions, the scheduler's
 //! pending trigger queue, the phase, deployments and the event emitter.
 //!
+//! The contract's `Match::restore(&Snapshot, Ruleset)` is not defined yet: it
+//! needs programs rebuilt from deployments (TODO(#56)). Until then
+//! [`Match::restore_with`] is hidden scaffolding that takes them as arguments.
+//!
 //! What is not state is supplied again on restore: drone programs (their
 //! persistent state is `me.mem`, which lives in the world; the VM, #47, adds
 //! anything else it needs), the resolver, the win hook and the options.
@@ -71,12 +75,17 @@ impl Match {
             .collect()
     }
 
-    /// Rebuilds a match from `snapshot`. `programs`, `resolver` and `options`
-    /// are not state, so the caller supplies them again; the win hook, if
-    /// any, must be set again too. Fails with
+    /// Scaffolding for the contract's `Match::restore(&Snapshot, Ruleset)`
+    /// (`engine-api.md` §4), which keeps that signature. Until the VM can
+    /// rebuild programs from the snapshot's deployments and the resolvers are
+    /// built in, the caller supplies `programs`, `resolver` and `options`
+    /// again; the win hook, if any, must be set again too. Fails with
     /// [`EngineError::RulesetMismatch`] if `ruleset`'s version differs from
     /// the one the snapshot was taken under.
-    pub fn restore(
+    // TODO(#56): add the contract-shaped `restore(snapshot, ruleset)` once
+    // programs can be rebuilt from deployments, and retire this.
+    #[doc(hidden)]
+    pub fn restore_with(
         snapshot: &Snapshot,
         ruleset: Ruleset,
         programs: Vec<(EntityId, Box<dyn DroneProgram>)>,
@@ -249,7 +258,7 @@ mod tests {
             run(&mut first, 5);
 
             let second_log: Log = Arc::default();
-            let mut restored = Match::restore(
+            let mut restored = Match::restore_with(
                 &snap,
                 ruleset(),
                 programs(&ids),
@@ -319,7 +328,7 @@ mod tests {
         let snap = m.snapshot();
         let mut other = ruleset();
         other.version = "9.9.9".into();
-        let err = Match::restore(
+        let err = Match::restore_with(
             &snap,
             other,
             Vec::new(),
