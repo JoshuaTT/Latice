@@ -2,9 +2,15 @@ Nudge: run your next coordinator cycle. First `git pull` and re-read `infra/agen
 
 Then, in order:
 1. Check for comments from Josh and follow them.
-2. Grow the backlog to target: the current milestone fully decomposed into issues, at least 8–12 issues written for the next milestone, and at least 2 unassigned `ready` issues per worker. Write several issues this cycle if you're short.
-3. Assign a `ready` issue to every idle worker; unstick red or stalled PRs; escalate what needs Josh.
-4. Evaluate the milestone criteria and make the call: stay, start the next milestone early, or move. Record a move as a `Milestone decision` comment with evidence.
-5. Update the `Swarm status` issue body, including the Backlog section.
+2. **Product backlog.** Grow it to target:
+   - the current milestone fully decomposed
+   - 8–12 issues written for the next milestone
+   - at least 2 unclaimed `ready` issues per worker, plus 2 `area:testing` issues for the tester
 
-Reply with one line of status (milestone decision, backlog size, ready count) and stop.
+   Every `ready` issue gets a priority. Triage new `bug` issues, and free stale claims. Don't assign work.
+3. **Quality control.** Review open swarm PRs against their acceptance criteria and the spec. For real defects, disable auto-merge, add `qc:changes-requested` and list the fixes. Spot-check what merged, and read the tester's `Test status` report.
+4. Escalate what needs Josh.
+5. Evaluate the milestone criteria and make the call: stay, start the next milestone early, or move.
+6. Update the `Swarm status` issue body.
+
+Reply with one line of status (milestone decision, ready count, open bugs, QC blocks) and stop.

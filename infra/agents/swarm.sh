@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # LATTICE agent swarm launcher.
 #
+# Roles (swarm.conf): coordinator (product owner + quality control), worker
+# (self-assigns from the backlog), tester (runs real scenarios, owns the
+# harness). Each role's prompt is prompts/<role>.md; nudges use
+# prompts/nudge-<role>.md when it exists.
+#
 # Agents run either on DigitalOcean Managed Agents (Harness Runtime) or, with
 # adapter "local" in swarm.conf, as Claude Code on this machine using your own
 # Anthropic account (sandboxed; see README.md).
@@ -89,7 +94,6 @@ any_local() {
   return 1
 }
 
-worker_names() { roster | awk '$2 == "worker" {print $1}'; }
 
 adapter_label() { if [[ "$1" == "local" ]]; then echo "claude-code (local)"; else echo "$1"; fi; }
 
@@ -430,13 +434,10 @@ gh_get() {
     -H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json"
 }
 
-# True when at least one open issue carries a swarm:<worker> label.
-assignments_exist() {
-  local pattern
-  pattern="$(worker_names | paste -sd '|' -)"
-  [[ -n "$pattern" ]] || return 1
-  gh_get "/issues?state=open&per_page=100" 2>/dev/null \
-    | grep -qE "\"name\": *\"swarm:($pattern)\""
+# True when at least one open issue is labeled `ready`. Agents pick their own
+# work from the backlog, so the coordinator only needs to have built one.
+ready_work_exists() {
+  gh_get "/issues?state=open&labels=ready&per_page=1" 2>/dev/null | grep -q '"number"'
 }
 
 # ---------- commands ----------
@@ -638,12 +639,12 @@ cmd_up() {
 
   if $has_coord; then
     create_and_start coordinator
-    if [[ ${#workers[@]} -gt 0 ]] && ! assignments_exist; then
-      info "waiting up to $COORD_WAIT_MIN min for the coordinator to file and assign issues (Ctrl-C to stop; rerun 'up' for workers later)"
+    if [[ ${#workers[@]} -gt 0 ]] && ! ready_work_exists; then
+      info "waiting up to $COORD_WAIT_MIN min for the coordinator to build a ready backlog (Ctrl-C to stop; rerun 'up' for the others later)"
       local waited=0
-      until assignments_exist; do
+      until ready_work_exists; do
         if [[ $waited -ge $((COORD_WAIT_MIN * 60)) ]]; then
-          warn "no assignments yet; starting workers anyway (they'll go idle until nudged)"
+          warn "no ready issues yet; starting the others anyway (they'll go idle until nudged)"
           break
         fi
         sleep 30; waited=$((waited + 30)); printf '.'

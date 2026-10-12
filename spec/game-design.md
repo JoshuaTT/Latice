@@ -1,7 +1,10 @@
 # LATTICE
-*A 5v5 team game for language models: write code together, fight with what you built.*
+*A 5v5 team game for language models, and a benchmark built on it: write code together, fight with what you built.*
 
-**Design doc v0.2**
+**Design doc v0.3**
+
+**Changes from v0.2**
+- LATTICE is also a **benchmark**: rigorous enough for labs to publish model-vs-model results (§1, new §18)
 
 **Changes from v0.1**
 - Assembly replaced by a deterministic Python subset plus a rich game library (§5)
@@ -21,6 +24,8 @@ Core War is the spiritual ancestor: programs fight programs, code is something y
 
 The rules guarantee that no single agent can write a winning program alone, see the whole board alone, or deploy anything alone. Five agents with partial information, separate budgets, and shared bandwidth have to organize themselves, and nothing tells them how.
 
+**LATTICE is also a benchmark.** Most benchmarks test a model alone on a fixed task. LATTICE tests what matters for AI agents doing real work: five instances writing, reviewing and fixing code together, against an opponent that adapts, with incomplete information and limited resources. Matches are deterministic, paired, side-swapped and fully logged, so a lab can play its models against a competitor's and publish the result with confidence intervals, a reproducibility bundle and replays anyone can check. That's the standard: rigorous enough that Anthropic could pit its models against OpenAI's and make a convincing case from the results (§18).
+
 ### Design pillars
 
 1. **Play to LLM strengths.** Reading code, writing code, reasoning about adversaries, negotiating plans. No reflexes.
@@ -29,6 +34,7 @@ The rules guarantee that no single agent can write a winning program alone, see 
 4. **Every match is new.** Maps, economy, and rule mutators are randomized, so canned strategies decay.
 5. **Deterministic and inspectable.** Every clash is seeded and replayable. Every loss can be debugged.
 6. **Fair by construction.** Maps are symmetric; matches are played as side-swapped pairs.
+7. **Benchmark-grade rigor.** Neutral harness, equal time and budgets, held-out seeds, pre-registered statistics, and complete records. A result should survive a skeptical reader (§18).
 
 ---
 
@@ -544,3 +550,86 @@ Each player is an isolated agent with its own context and no channel except the 
 3. **Team assignment for mixed matches.** Mirror compositions (same models on each side), or deliberately asymmetric compositions?
 4. **Persistent drones.** Carrying drones across epochs adds depth but could snowball. This needs playtesting.
 5. **Retro visibility.** Should players' Retro feedback ever be visible to other players or to future matches?
+
+---
+
+## 18. LATTICE as a benchmark
+
+LATTICE is a game, and it is also a **benchmark**: a way to compare language models that a lab could publish and a skeptical reader would accept. If Anthropic plays its models against OpenAI's in LATTICE, the result should be a convincing argument about which models are better at **collaborative software engineering under adversarial pressure and partial information**, not a story about lucky seeds, a friendlier harness, or a bigger budget.
+
+### 18.1 What it measures
+
+A LATTICE result reflects, together:
+- **Software engineering:** writing, reading, debugging and patching real code (LatticePy) against a strict resource model (fuel, quota).
+- **Coordination:** five instances agreeing on interfaces, protocols and a manifest through a metered channel, with no assigned roles.
+- **Adversarial reasoning:** reading captured enemy code, anticipating the opponent, adapting between epochs.
+- **Reasoning under partial information:** pooling sharded intel and telemetry into a correct picture of what happened.
+
+Telemetry decomposes each result into these sub-skills (§18.6), so a report can say *why* a model won, not only that it did.
+
+### 18.2 Benchmark protocol
+
+A benchmark run follows a published, versioned protocol: **LATTICE-Bench vN**. Everything that could change a result is fixed in advance and recorded.
+
+- **Frozen ruleset.** One ruleset version (`spec/rulesets/`) per benchmark release. The tuning loop (§14) never changes a released benchmark; tuning produces the *next* release.
+- **Seed sets.** A **public dev set** of map seeds and mutator draws for anyone to practise and reproduce on, and a **held-out test set** that's only used for official runs. The held-out set is committed by hash before the run, revealed after it, and replaced every release.
+- **Paired, mirrored, side-swapped play.** Every comparison is played on identical seeds, with sides swapped (§13 series), so map asymmetry and seat order cancel out.
+- **Homogeneous teams for headline results.** "Model A vs. model B" means five seats of A against five seats of B. Mixed-team results (§12) are reported separately and never mixed into the headline number.
+- **Board-size tiers.** Results are reported per tier (small 64–128², medium 256², large 1024²) because the game changes with scale (§4.0).
+- **Pinned participants.** Each model is recorded by exact provider model ID and snapshot date, sampling settings (temperature, top-p, max tokens, reasoning or effort setting), API region, and the date range of the run. Changing any of these makes it a different participant.
+
+### 18.3 Harness neutrality
+
+The harness must not favor any model or provider.
+
+- **One standard Pilot.** Identical system prompt, Field Manual, tools, observation format and context-management policy for every seat (system design §4). No model-specific prompts, tool formats or retries. Provider adapters translate formats; they never add capability.
+- **Equal time.** Benchmark matches use a **fixed beat length** for every seat, set by the slowest participant's p90 (§3.3), so speed never buys extra actions.
+- **Equal budgets.** Each seat gets the same per-match budget of input and output tokens (and reasoning tokens where the provider exposes them). Results are reported at one or more declared **budget tiers**. An unconstrained tier may be reported too, labeled as such, with cost per match shown.
+- **Same failure rules for everyone.** Rate limits, timeouts and provider errors follow a pre-declared policy: bounded retries with backoff, then the seat passes that beat. A match with more than a set fraction of passed beats from infrastructure errors is voided and replayed on the same seed. Voids are reported.
+- **No vendor input into seeds or schedules.** Participants can't choose maps, seeds, opponents or run times.
+
+### 18.4 Statistics
+
+Results come with uncertainty, computed the same way every time.
+
+- **Primary metric:** paired win rate over side-swapped pairs (a pair counts as a win, loss, or split), with **95% confidence intervals** from a bootstrap over seeds.
+- **Ratings:** a Bradley–Terry model fitted over all pairs, with bootstrap intervals, for comparing more than two models.
+- **Significance:** a paired permutation test over seeds for each headline comparison, with the test and the threshold stated in advance.
+- **Sample size:** the number of pairs per comparison is set in advance by a power analysis. The default target is enough pairs to resolve a 10-point win-rate difference at 95% confidence. Runs aren't stopped early because a result looks good.
+- **Secondary metrics:** Core-kill rate, score margin, epochs to first Core damage, and the sub-skill telemetry in §18.6, each with intervals.
+- **Anchors:** house bots and a fixed **reference model** play in every release, so ratings stay comparable across releases and give an absolute floor.
+
+### 18.5 Reproducibility and integrity
+
+Anyone should be able to check a published result.
+
+- **Determinism.** The engine is bit-for-bit deterministic (system design §2.1). Given the recorded inputs, every clash replays exactly.
+- **Complete records.** Every model call (prompt, response, tokens, latency), every action and every message is logged. Public results ship with full replays and a **reproducibility bundle**: ruleset version, seed list, Pilot version, participant pins, budgets, failure log and the analysis code.
+- **Tamper evidence.** Match records are hash-chained, and the bundle's hash is published with the result.
+- **Contamination control.** Held-out seeds stay private until the run is over and are replaced every release. A canary string in benchmark materials lets anyone detect training on them.
+- **Independent reruns.** The harness, house bots and analysis code are open source, so a third party can rerun the public dev set and get the same numbers within the reported intervals.
+
+### 18.6 Explaining results
+
+Telemetry turns a win into an explanation:
+
+| Sub-skill | Signals |
+|---|---|
+| Engineering | Share of deployed code that ran without errors; fuel efficiency; checker rejections; how fast the team patches broken modules |
+| Coordination | Time to quorum; epochs with no deployment; cross-author module calls and blackboard protocol use; bandwidth spent per action that mattered |
+| Adversarial play | Successful hacks and captures; use of captured enemy code; adaptation between epochs |
+| Information use | How much sharded intel was shared in chat; decisions that relied on another player's shard |
+
+These are reported next to the headline numbers, so a reader can see what a stronger model did differently.
+
+### 18.7 What a published comparison contains
+
+A LATTICE-Bench report states, at minimum:
+- the benchmark version, ruleset, Pilot version, seed sets (and the held-out set's hash) and the date range
+- each participant's pins and budget tier
+- paired win rate with intervals, the significance test result, and the number of pairs
+- secondary metrics and sub-skill breakdowns, each with intervals
+- voided matches and the reasons
+- a link to the reproducibility bundle and the replays
+
+The same standard applies to every lab, including whoever operates the benchmark.
