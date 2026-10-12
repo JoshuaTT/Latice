@@ -8,35 +8,14 @@
 use sha2::{Digest, Sha256};
 
 use crate::error::EngineError;
+use crate::events::Emitter;
+pub use crate::events::{Event, EventSink, NullSink};
 use crate::rng::{MatchRng, StreamId};
 use crate::ruleset::Ruleset;
 use crate::tick::{DroneProgram, EngineOptions, NoopResolver, Resolver, Scheduler, Trigger};
 use crate::world::grid::Team;
 use crate::world::hash::{Extras, HandlerKind, PendingHandler, Phase};
 use crate::world::{EntityId, World};
-
-/// An event as seen by a sink. Placeholder until #59 adds the per-type
-/// payloads from `events.schema.json`; `seq` is assigned in resolve order.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct Event {
-    pub epoch: u32,
-    pub tick: u64,
-    pub seq: u64,
-}
-
-/// Receives events as they are emitted. Infallible and must not influence the
-/// simulation.
-pub trait EventSink {
-    fn emit(&mut self, event: &Event);
-}
-
-/// Discards events.
-pub struct NullSink;
-
-impl EventSink for NullSink {
-    fn emit(&mut self, _: &Event) {}
-}
 
 /// A module's name and source (`engine-api.md` §2).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +72,7 @@ pub struct Match {
     ended: Option<ClashEnd>,
     deployments: [TeamDeployment; 2],
     rng: [(StreamId, MatchRng); 2],
+    emitter: Emitter,
 }
 
 impl Match {
@@ -123,6 +103,7 @@ impl Match {
             phase: Phase::Deployed,
             clash_length,
             ended: None,
+            emitter: Emitter::default(),
             deployments: [TeamDeployment::default(), TeamDeployment::default()],
             rng: [StreamId::Mapgen, StreamId::TieBreak].map(|s| (s, MatchRng::new(seed, s))),
         })
@@ -153,6 +134,13 @@ impl Match {
     /// 0-based tick within the current clash.
     pub fn tick(&self) -> u64 {
         self.world.tick
+    }
+
+    /// The emitter the resolvers call (#53–#55). Its `match_id` is empty until
+    /// `Match::new` sets it.
+    #[doc(hidden)]
+    pub fn emitter_mut(&mut self) -> &mut Emitter {
+        &mut self.emitter
     }
 
     pub fn world(&self) -> &World {
@@ -202,9 +190,9 @@ impl Match {
             phase: self.phase,
             libraries,
             handlers,
+            next_event_seq: self.emitter.next_seq(),
             rng: self.rng.iter().map(|(s, r)| (*s, r.state())).collect(),
             // Not yet hashed, each owed by the issue that adds the state:
-            // TODO(#59): next event `seq`
             // TODO(#103): pending radio queue
             // TODO(#56): per-drone RNG streams
             // TODO(#56): team blackboards (`team.board`)
@@ -530,6 +518,22 @@ mod tests {
                 },
             )]
         }
+    }
+
+    #[test]
+    fn emitted_events_advance_seq_and_change_the_state_hash() {
+        use crate::events::{CoreDamagePayload, EventKind, Team as EventTeam, VecSink};
+        let mut m = new_match();
+        let before = m.state_hash();
+        let mut sink = VecSink::default();
+        let kind = EventKind::CoreDamage(CoreDamagePayload {
+            core_team: EventTeam::A,
+            damage: 1,
+            hp_after: 199,
+        });
+        m.emitter_mut().emit(1, 0, kind, &mut sink);
+        assert_eq!(sink.0[0].seq, 0);
+        assert_ne!(m.state_hash(), before);
     }
 
     #[test]
