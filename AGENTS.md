@@ -63,7 +63,7 @@ When you create a new top-level module, add a short `AGENTS.md` inside it with: 
 
 ## 4. Changing the spec
 
-- Anything under `spec/` needs human approval (CODEOWNERS).
+- Anything under `spec/` needs human approval (it's code-owned, so the `human-gate` check waits for Josh).
 - Spec changes go in **their own PR**, separate from code. Title it `docs(spec): …`.
 - Explain the problem, the proposed change, and which sections and modules it affects.
 - Don't build on an unmerged spec change. If your code depends on one, mark your issue `blocked:human` until it merges.
@@ -96,8 +96,8 @@ When you create a new top-level module, add a short `AGENTS.md` inside it with: 
 
 - Fill in the PR template completely: summary, linked issue (`Closes #N`), spec sections, test evidence.
 - `main` requires the branch to be **up to date** before merging. Rebase on `main` when it moves, then let CI re-run.
-- PRs that only touch paths without a code owner can merge as soon as all required checks pass. Enable auto-merge (squash) when you open the PR.
-- PRs touching code-owned paths (§6) wait for human approval. Don't ping repeatedly; one comment is enough.
+- PRs merge as soon as all required checks pass. Enable auto-merge (squash) when you open the PR.
+- The required `human-gate` check holds a PR for Josh when it's labeled `needs-human` or touches a code-owned path (§6). `needs-human` is added automatically for code-owned paths; add it yourself to escalate any PR that needs a human decision. **Never remove the `needs-human` label.** Don't ping repeatedly; one comment is enough.
 - Resolve every review thread before merging (enforced).
 - An AI review runs on every PR (`claude-review`). It's advisory, not required, but address real findings or reply explaining why not.
 
@@ -116,7 +116,7 @@ When you create a new top-level module, add a short `AGENTS.md` inside it with: 
 
 ## 6. What needs a human
 
-These paths are code-owned by **@JoshuaTT** (see `.github/CODEOWNERS`). PRs that touch them can't merge without his approval:
+These paths are code-owned by **@JoshuaTT** (see `.github/CODEOWNERS`). PRs that touch them are labeled `needs-human`, and the required `human-gate` check holds them until he approves (removing the label doesn't help: the gate also checks the paths):
 
 | Path | Why |
 |---|---|
@@ -147,6 +147,7 @@ Required status checks on `main` (job names are fixed; don't rename them):
 | `contracts` | `ci.yml` | Validates every schema in `spec/contracts/` against its metaschema | `check-jsonschema --check-metaschema spec/contracts/*.json` |
 | `determinism` | `ci.yml` | Replays every golden match and compares state hashes | `cargo run --release -p lattice-cli -- replay --verify tests/golden` |
 | `perf-budget` | `ci.yml` | Benchmarks against the budgets in system design §11.4 | `cargo bench -p lattice-engine -- --budget` |
+| `human-gate` | `human-gate.yml` | Passes unless the PR is labeled `needs-human` or touches a code-owned path; then waits for a code owner's approval of the latest commit | n/a |
 
 Each job passes with a notice until the code it checks exists. Once it exists, it must pass for real.
 
@@ -156,7 +157,7 @@ Each job passes with a notice until the code it checks exists. Once it exists, i
 - Fuzz targets under `engine/fuzz/` (cargo-fuzz) and a sandbox escape suite at `engine/tests/sandbox.rs`.
 
 Advisory workflows (not required):
-- `pr-hygiene.yml`: PR title format, PR template completeness, `needs-human` labeling, secret scanning
+- `pr-hygiene.yml`: PR title format, PR template completeness, `needs-human` labeling (adds only), secret scanning
 - `claude-review.yml`: AI code review against the spec
 - `nightly.yml`: native vs. WASM parity, fuzzing, sandbox-escape tests, full-size performance runs
 
