@@ -33,3 +33,6 @@ pub mod ghost {}
 /// Telemetry sharder: splits clash events into per-player, per-team, and god
 /// views; builds digests.
 pub mod shard {}
+
+/// Seeded ChaCha RNG with stream IDs: the engine's only source of randomness.
+pub mod rng;
