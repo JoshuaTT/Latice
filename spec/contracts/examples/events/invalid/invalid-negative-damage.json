@@ -1,0 +1,13 @@
+{
+  "match_id": "550e8400-e29b-41d4-a716-446655440000",
+  "epoch": 1,
+  "tick": 42,
+  "seq": 0,
+  "event_type": "attack",
+  "payload": {
+    "attacker_id": "drone-A-001",
+    "target_id": "drone-B-007",
+    "damage": -5,
+    "target_hp_after": 20
+  }
+}

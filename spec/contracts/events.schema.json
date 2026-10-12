@@ -1,0 +1,460 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lattice.example.com/contracts/events.schema.json",
+  "title": "Clash Event Schema",
+  "description": "Event log the engine writes each tick. The telemetry sharder splits these into per-seat views, the event store persists them, and the spectator feed serves them. Sequence numbers are assigned by the engine in resolve order within each tick, using a deterministic ordering: first by action type priority (build < spawn < repair < patch < deposit < withdraw < harvest < claim < move < attack < hack < capture < radio_sent < mark_written < core_damage < structure_destroyed < cell_flipped), then by a rotating seat order that advances each epoch. This ensures bit-identical ordering across all executions.",
+  "type": "object",
+  "properties": {
+    "match_id": {
+      "type": "string",
+      "description": "Unique identifier for the match (UUID format)"
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "description": "Epoch number (1-4)"
+    },
+    "tick": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Tick number within the epoch"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonically increasing sequence number per match, assigned by the engine in resolve order within each tick. Used to reconstruct the exact ordering of events."
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "move",
+        "claim",
+        "harvest",
+        "attack",
+        "hack",
+        "patch",
+        "build",
+        "spawn",
+        "repair",
+        "deposit",
+        "withdraw",
+        "capture",
+        "core_damage",
+        "structure_destroyed",
+        "cell_flipped",
+        "mark_written",
+        "radio_sent"
+      ],
+      "description": "Type of event that occurred"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Event-specific payload data"
+    }
+  },
+  "required": ["match_id", "epoch", "tick", "seq", "event_type", "payload"],
+  "additionalProperties": false,
+  "$defs": {
+    "Position": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "StructureKind": {
+      "type": "string",
+      "enum": ["Barrier", "Relay", "Battery", "Sentinel", "Firewall Node", "Forge"]
+    },
+    "Team": {
+      "type": "string",
+      "enum": ["A", "B", "Neutral"]
+    },
+    "MovePayload": {
+      "type": "object",
+      "required": ["drone_id", "from", "to"],
+      "properties": {
+        "drone_id": { "type": "string" },
+        "from": { "$ref": "#/$defs/Position" },
+        "to": { "$ref": "#/$defs/Position" }
+      },
+      "additionalProperties": false
+    },
+    "ClaimPayload": {
+      "type": "object",
+      "required": ["drone_id", "position", "new_owner"],
+      "properties": {
+        "drone_id": { "type": "string" },
+        "position": { "$ref": "#/$defs/Position" },
+        "new_owner": { "$ref": "#/$defs/Team" }
+      },
+      "additionalProperties": false
+    },
+    "HarvestPayload": {
+      "type": "object",
+      "required": ["drone_id", "position", "amount"],
+      "properties": {
+        "drone_id": { "type": "string" },
+        "position": { "$ref": "#/$defs/Position" },
+        "amount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "AttackPayload": {
+      "type": "object",
+      "required": ["attacker_id", "target_id", "damage", "target_hp_after"],
+      "properties": {
+        "attacker_id": { "type": "string" },
+        "target_id": { "type": "string" },
+        "damage": { "type": "integer", "minimum": 0 },
+        "target_hp_after": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "HackPayload": {
+      "type": "object",
+      "required": ["attacker_id", "target_id", "target_firewall_before", "target_firewall_after", "payload_module"],
+      "properties": {
+        "attacker_id": { "type": "string" },
+        "target_id": { "type": "string" },
+        "target_firewall_before": { "type": "integer", "minimum": 0 },
+        "target_firewall_after": { "type": "integer", "minimum": 0 },
+        "payload_module": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "PatchPayload": {
+      "type": "object",
+      "required": ["drone_id", "target_id", "firewall_restored"],
+      "properties": {
+        "drone_id": { "type": "string" },
+        "target_id": { "type": "string" },
+        "firewall_restored": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "BuildPayload": {
+      "type": "object",
+      "required": ["drone_id", "structure_kind", "position"],
+      "properties": {
+        "drone_id": { "type": "string" },
+        "structure_kind": { "$ref": "#/$defs/StructureKind" },
+        "position": { "$ref": "#/$defs/Position" }
+      },
+      "additionalProperties": false
+    },
+    "SpawnPayload": {
+      "type": "object",
+      "required": ["spawner_id", "new_drone_id", "module_name", "position", "args"],
+      "properties": {
+        "spawner_id": { "type": "string" },
+        "new_drone_id": { "type": "string" },
+        "module_name": { "type": "string" },
+        "position": { "$ref": "#/$defs/Position" },
+        "args": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "RepairPayload": {
+      "type": "object",
+      "required": ["drone_id", "target_id", "hp_restored", "target_hp_after"],
+      "properties": {
+        "drone_id": { "type": "string" },
+        "target_id": { "type": "string" },
+        "hp_restored": { "type": "integer", "minimum": 0 },
+        "target_hp_after": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "DepositPayload": {
+      "type": "object",
+      "required": ["drone_id", "structure_id", "amount"],
+      "properties": {
+        "drone_id": { "type": "string" },
+        "structure_id": { "type": "string" },
+        "amount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "WithdrawPayload": {
+      "type": "object",
+      "required": ["drone_id", "structure_id", "amount"],
+      "properties": {
+        "drone_id": { "type": "string" },
+        "structure_id": { "type": "string" },
+        "amount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "CapturePayload": {
+      "type": "object",
+      "required": ["target_id", "capturer_id", "new_owner", "module_source"],
+      "properties": {
+        "target_id": { "type": "string" },
+        "capturer_id": { "type": "string" },
+        "new_owner": { "$ref": "#/$defs/Team" },
+        "module_source": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "CoreDamagePayload": {
+      "type": "object",
+      "required": ["core_team", "damage", "hp_after"],
+      "properties": {
+        "core_team": { "$ref": "#/$defs/Team" },
+        "damage": { "type": "integer", "minimum": 0 },
+        "hp_after": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "StructureDestroyedPayload": {
+      "type": "object",
+      "required": ["structure_id", "structure_kind", "position", "owner"],
+      "properties": {
+        "structure_id": { "type": "string" },
+        "structure_kind": { "$ref": "#/$defs/StructureKind" },
+        "position": { "$ref": "#/$defs/Position" },
+        "owner": { "$ref": "#/$defs/Team" }
+      },
+      "additionalProperties": false
+    },
+    "CellFlippedPayload": {
+      "type": "object",
+      "required": ["position", "old_owner", "new_owner"],
+      "properties": {
+        "position": { "$ref": "#/$defs/Position" },
+        "old_owner": { "$ref": "#/$defs/Team" },
+        "new_owner": { "$ref": "#/$defs/Team" }
+      },
+      "additionalProperties": false
+    },
+    "MarkWrittenPayload": {
+      "type": "object",
+      "required": ["drone_id", "position", "key", "value", "ttl"],
+      "properties": {
+        "drone_id": { "type": "string" },
+        "position": { "$ref": "#/$defs/Position" },
+        "key": { "type": "string" },
+        "value": { "type": "string" },
+        "ttl": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "RadioSentPayload": {
+      "type": "object",
+      "required": ["sender_id", "position", "content", "range"],
+      "properties": {
+        "sender_id": { "type": "string" },
+        "position": { "$ref": "#/$defs/Position" },
+        "content": { "type": "string" },
+        "range": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "if": {
+    "properties": {
+      "event_type": { "const": "move" }
+    }
+  },
+  "then": {
+    "properties": {
+      "payload": { "$ref": "#/$defs/MovePayload" }
+    }
+  },
+  "else": {
+    "if": {
+      "properties": {
+        "event_type": { "const": "claim" }
+      }
+    },
+    "then": {
+      "properties": {
+        "payload": { "$ref": "#/$defs/ClaimPayload" }
+      }
+    },
+    "else": {
+      "if": {
+        "properties": {
+          "event_type": { "const": "harvest" }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": { "$ref": "#/$defs/HarvestPayload" }
+        }
+      },
+      "else": {
+        "if": {
+          "properties": {
+            "event_type": { "const": "attack" }
+          }
+        },
+        "then": {
+          "properties": {
+            "payload": { "$ref": "#/$defs/AttackPayload" }
+          }
+        },
+        "else": {
+          "if": {
+            "properties": {
+              "event_type": { "const": "hack" }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload": { "$ref": "#/$defs/HackPayload" }
+            }
+          },
+          "else": {
+            "if": {
+              "properties": {
+                "event_type": { "const": "patch" }
+              }
+            },
+            "then": {
+              "properties": {
+                "payload": { "$ref": "#/$defs/PatchPayload" }
+              }
+            },
+            "else": {
+              "if": {
+                "properties": {
+                  "event_type": { "const": "build" }
+                }
+              },
+              "then": {
+                "properties": {
+                  "payload": { "$ref": "#/$defs/BuildPayload" }
+                }
+              },
+              "else": {
+                "if": {
+                  "properties": {
+                    "event_type": { "const": "spawn" }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "payload": { "$ref": "#/$defs/SpawnPayload" }
+                  }
+                },
+                "else": {
+                  "if": {
+                    "properties": {
+                      "event_type": { "const": "repair" }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "payload": { "$ref": "#/$defs/RepairPayload" }
+                    }
+                  },
+                  "else": {
+                    "if": {
+                      "properties": {
+                        "event_type": { "const": "deposit" }
+                      }
+                    },
+                    "then": {
+                      "properties": {
+                        "payload": { "$ref": "#/$defs/DepositPayload" }
+                      }
+                    },
+                    "else": {
+                      "if": {
+                        "properties": {
+                          "event_type": { "const": "withdraw" }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "payload": { "$ref": "#/$defs/WithdrawPayload" }
+                        }
+                      },
+                      "else": {
+                        "if": {
+                          "properties": {
+                            "event_type": { "const": "capture" }
+                          }
+                        },
+                        "then": {
+                          "properties": {
+                            "payload": { "$ref": "#/$defs/CapturePayload" }
+                          }
+                        },
+                        "else": {
+                          "if": {
+                            "properties": {
+                              "event_type": { "const": "core_damage" }
+                            }
+                          },
+                          "then": {
+                            "properties": {
+                              "payload": { "$ref": "#/$defs/CoreDamagePayload" }
+                            }
+                          },
+                          "else": {
+                            "if": {
+                              "properties": {
+                                "event_type": { "const": "structure_destroyed" }
+                              }
+                            },
+                            "then": {
+                              "properties": {
+                                "payload": { "$ref": "#/$defs/StructureDestroyedPayload" }
+                              }
+                            },
+                            "else": {
+                              "if": {
+                                "properties": {
+                                  "event_type": { "const": "cell_flipped" }
+                                }
+                              },
+                              "then": {
+                                "properties": {
+                                  "payload": { "$ref": "#/$defs/CellFlippedPayload" }
+                                }
+                              },
+                              "else": {
+                                "if": {
+                                  "properties": {
+                                    "event_type": { "const": "mark_written" }
+                                  }
+                                },
+                                "then": {
+                                  "properties": {
+                                    "payload": { "$ref": "#/$defs/MarkWrittenPayload" }
+                                  }
+                                },
+                                "else": {
+                                  "if": {
+                                    "properties": {
+                                      "event_type": { "const": "radio_sent" }
+                                    }
+                                  },
+                                  "then": {
+                                    "properties": {
+                                      "payload": { "$ref": "#/$defs/RadioSentPayload" }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
