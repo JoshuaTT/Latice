@@ -111,10 +111,52 @@
       },
       "required": ["team_size", "quorum", "win_conditions"]
     },
+    "mapgen": {
+      "type": "object",
+      "description": "Map generation constraints (spec/mapgen.md sections 2 to 4). Optional until the ruleset loader reads it; spec/mapgen.md holds the default for every key.",
+      "additionalProperties": false,
+      "properties": {
+        "wall_density_min_percent": { "type": "integer", "minimum": 0, "maximum": 50, "default": 8, "description": "Fewest wall cells, as a percent of the board." },
+        "wall_density_max_percent": { "type": "integer", "minimum": 0, "maximum": 50, "default": 18, "description": "Most wall cells, as a percent of the board." },
+        "min_corridor_width": { "type": "integer", "minimum": 1, "maximum": 4, "default": 2, "description": "Narrowest passage, in cells, between any two walls on a route between objectives." },
+        "core_clearance_radius": { "type": "integer", "minimum": 1, "maximum": 4, "default": 2, "description": "Chebyshev radius around each Core centre that must be open (2 = a 5x5 square)." },
+        "core_min_separation_percent": { "type": "integer", "minimum": 50, "maximum": 100, "default": 50, "description": "Minimum Chebyshev distance between the two Core centres, as a percent of the side length (game-design 4.0: at least half the board)." },
+        "start_forge_min_distance": { "type": "integer", "minimum": 3, "maximum": 8, "default": 3, "description": "Nearest a team's starting Forge may be to its Core centre (Chebyshev)." },
+        "start_forge_max_distance": { "type": "integer", "minimum": 3, "maximum": 12, "default": 6, "description": "Farthest a team's starting Forge may be from its Core centre (Chebyshev)." },
+        "object_min_spacing": { "type": "integer", "minimum": 2, "maximum": 16, "default": 6, "description": "Minimum Chebyshev distance between any two of: Wells, Relics, neutral Forges, starting Forges." },
+        "object_core_min_distance": { "type": "integer", "minimum": 4, "maximum": 24, "default": 8, "description": "Minimum Chebyshev distance from any Well, Relic or neutral Forge to either Core centre." },
+        "max_attempts": { "type": "integer", "minimum": 1, "maximum": 64, "default": 16, "description": "Generation attempts (reseeding on a failed fairness check) before generation fails." }
+      },
+      "required": ["wall_density_min_percent", "wall_density_max_percent", "min_corridor_width", "core_clearance_radius", "core_min_separation_percent", "start_forge_min_distance", "start_forge_max_distance", "object_min_spacing", "object_core_min_distance", "max_attempts"]
+    },
     "mutators": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "params": {
+          "type": "object",
+          "description": "Numeric parameters of the game-design 6 mutators (spec/mapgen.md section 6). Optional until the ruleset loader reads it.",
+          "additionalProperties": false,
+          "properties": {
+            "fog_sense_cap": { "type": "integer", "minimum": 1, "maximum": 8, "default": 3 },
+            "costly_spawn_multiplier": { "type": "integer", "minimum": 2, "maximum": 5, "default": 3 },
+            "quiet_radio_range": { "type": "integer", "minimum": 1, "maximum": 7, "default": 3 },
+            "small_board_keys": { "type": "integer", "minimum": 4, "maximum": 63, "default": 16 },
+            "glass_core_firewall": { "type": "integer", "minimum": 1, "maximum": 39, "default": 15 },
+            "plague_hack_cost_percent": { "type": "integer", "minimum": 10, "maximum": 90, "default": 50 },
+            "thin_air_fuel_percent": { "type": "integer", "minimum": 10, "maximum": 90, "default": 50 },
+            "drift_percent": { "type": "integer", "minimum": 1, "maximum": 20, "default": 1 },
+            "long_night_ticks": { "type": "integer", "minimum": 2001, "maximum": 16000, "default": 4000 },
+            "banned_call_candidates": {
+              "type": "array",
+              "description": "Library function names one of which Banned Call disables. Filled from the lattice API reference (#38); while empty, Banned Call is removed from the draw.",
+              "items": { "type": "string", "pattern": "^[a-z_][a-z0-9_.]*$" },
+              "uniqueItems": true,
+              "default": []
+            }
+          },
+          "required": ["fog_sense_cap", "costly_spawn_multiplier", "quiet_radio_range", "small_board_keys", "glass_core_firewall", "plague_hack_cost_percent", "thin_air_fuel_percent", "drift_percent", "long_night_ticks", "banned_call_candidates"]
+        },
         "pool": {
           "type": "array",
           "items": {
